@@ -7,24 +7,16 @@ import AdminAnalytics from './AdminAnalytics.jsx'
 import News from './News.jsx'
 import PasswordReset from './PasswordReset.jsx'
 import LessonEditor from './LessonEditor.jsx'
-import { mockRequest } from './mockApi.js'
 
 const API = '/api'
 const tokenKey = 'securelab-token'
 const userKey = 'securelab-user'
 
 async function request(path, options = {}) {
-  try {
-    const res = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}), ...(localStorage.getItem(tokenKey) ? { Authorization: `Bearer ${localStorage.getItem(tokenKey)}` } : {}) } })
-    const type=res.headers.get('content-type')||''
-    if(!type.includes('application/json')) return mockRequest(path,options)
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.message || 'Алдаа гарлаа')
-    return data
-  } catch (error) {
-    if(!(error instanceof TypeError) && error.message && !error.message.includes('Unexpected token')) throw error
-    return mockRequest(path,options)
-  }
+  const res = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}), ...(localStorage.getItem(tokenKey) ? { Authorization: `Bearer ${localStorage.getItem(tokenKey)}` } : {}) } })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.message || 'Алдаа гарлаа')
+  return data
 }
 
 function Brand() {
