@@ -1,5 +1,7 @@
 import express from 'express'
 import { installAnalytics } from './analytics.js'
+import { installAudit } from './audit.js'
+import { installPlainLanguage } from './plain-language-migration.js'
 import { installNews } from './news.js'
 import { curriculum } from './curriculum.js'
 import { foundations } from './foundations.js'
@@ -15,6 +17,20 @@ const db = createDatabase()
 const app = express()
 const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
+const PRODUCTION = process.env.NODE_ENV === 'production'
+if(PRODUCTION&&(JWT_SECRET==='dev-secret-change-in-production'||Buffer.byteLength(JWT_SECRET)<32)) throw new Error('Production орчинд 32+ тэмдэгттэй JWT_SECRET тохируулна уу.')
+
+app.disable('x-powered-by')
+app.use((req,res,next)=>{
+  res.set({
+    'X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Referrer-Policy':'no-referrer',
+    'Permissions-Policy':'camera=(), microphone=(), geolocation=()',
+    'Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  })
+  if(req.path.startsWith('/api/'))res.set('Cache-Control','no-store')
+  if(req.secure)res.set('Strict-Transport-Security','max-age=31536000; includeSubDomains')
+  next()
+})
 
 app.use(express.json({limit:'12mb'}))
 
@@ -102,6 +118,12 @@ function parseJson(value, fallback) {
   try { return JSON.parse(value || '') } catch { return fallback }
 }
 
+for (const column of ['objectives_json','summary_json']) {
+  if (db.dialect === 'postgres') await db.exec(`ALTER TABLE lessons ADD COLUMN IF NOT EXISTS ${column} TEXT`)
+  else if (!(await db.all('PRAGMA table_info(lessons)')).some(c=>c.name===column)) await db.exec(`ALTER TABLE lessons ADD COLUMN ${column} TEXT`)
+}
+const learningList = value => (Array.isArray(value)?value:[]).map(x=>String(x).trim().slice(0,1500)).filter(Boolean).slice(0,10)
+
 function legacyCases(content) {
   return (Array.isArray(content) ? content : [])
     .filter((step) => step?.example)
@@ -118,7 +140,9 @@ function lessonPayload(row) {
   const content = parseJson(row.content_json, [])
   const quiz = parseJson(row.quiz_json, [])
   const explicitCases = row.cases_json ? parseJson(row.cases_json, []) : null
-  return {...row, content, cases: Array.isArray(explicitCases) ? explicitCases : legacyCases(content), quiz}
+  const objectives = learningList(parseJson(row.objectives_json, []))
+  const summary = learningList(parseJson(row.summary_json, []))
+  return {...row, objectives:objectives.length?objectives:content.slice(0,3).map(s=>`${s.title} — эрсдэлийг таньж, хамгаалах аргыг хэрэглэх.`), summary:summary.length?summary:quiz.slice(0,5).map(q=>q.explain).filter(Boolean), content, cases: Array.isArray(explicitCases) ? explicitCases : legacyCases(content), quiz}
 }
 
 function trimmed(value, limit = 5000) {
@@ -175,7 +199,7 @@ function normalizeLessonInput(body) {
     throw new Error('Шалгалт хэсэгт асуулт, 2+ сонголт, зөв хариулт, тайлбар бүрэн байх ёстой.')
   }
 
-  return { title, description, duration, level, category, accent, image_url, content, cases, quiz }
+  return { title, description, duration, level, category, accent, image_url, content, cases, quiz, objectives:learningList(body.objectives), summary:learningList(body.summary) }
 }
 
 const lessons = [
@@ -208,20 +232,39 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', [
   })
   if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
 }
-const adminPassword = bcrypt.hashSync('Galsan0423', 10)
-const existingAdmin = await db.get("SELECT id FROM users WHERE username = 'Galsan' OR email = 'admin@securelab.mn'")
+await installPlainLanguage(db)
+const existingAdmin = await db.get("SELECT id,password_hash FROM users WHERE lower(username) = lower('Galsan') OR lower(email) = lower('admin@securelab.mn')")
 if (existingAdmin) {
-  // Preserve changed credentials across server restarts.
+  if(PRODUCTION&&await bcrypt.compare('Galsan0423',existingAdmin.password_hash))throw new Error('Production эхлүүлэхийн өмнө development админы нууц үгийг солино уу.')
 } else {
+  const initialAdminPassword=process.env.ADMIN_PASSWORD||(PRODUCTION?null:'Galsan0423')
+  if(!initialAdminPassword)throw new Error('Анхны админ үүсгэхийн тулд ADMIN_PASSWORD тохируулна уу.')
+  const adminPassword = bcrypt.hashSync(initialAdminPassword, 12)
   await db.run("INSERT INTO users (name, username, email, password_hash, role) VALUES ('Galsan', 'Galsan', 'admin@securelab.mn', ?, 'admin')", [adminPassword])
+}
+
+const passwordError=password=>{
+  if(typeof password!=='string'||Buffer.byteLength(password)>72||password.length<12)return 'Нууц үг 12–72 тэмдэгт байна.'
+  if(!/[a-z]/.test(password)||!/[A-Z]/.test(password)||!/[0-9]/.test(password)||!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]/.test(password))return 'Нууц үг том, жижиг үсэг, тоо, тусгай тэмдэгт агуулна.'
+  return ''
+}
+const loginAttempts=new Map(),ipLoginAttempts=new Map(),LOGIN_LIMIT=5,IP_LOGIN_LIMIT=30, LOCK_MS=15*60*1000
+const loginKey=(req,identifier)=>`${req.ip}|${identifier.toLowerCase().slice(0,160)}`
+const dummyPasswordHash=bcrypt.hashSync('Dummy-Password-Only-9!',12)
+const pruneLoginAttempts=()=>{
+  const expiry=Date.now()-LOCK_MS
+  for(const store of [loginAttempts,ipLoginAttempts]){
+    for(const [key,value] of store)if((value.updatedAt||0)<expiry&&(!value.lockedUntil||value.lockedUntil<Date.now()))store.delete(key)
+    while(store.size>10000)store.delete(store.keys().next().value)
+  }
 }
 
 async function auth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '')
   if (!token) return res.status(401).json({ message: 'Нэвтрэх шаардлагатай.' })
   try {
-    const claims=jwt.verify(token, JWT_SECRET)
-    req.user=await db.get('SELECT id,role,session_version FROM users WHERE id=?', [claims.id])
+    const claims=jwt.verify(token, JWT_SECRET,{algorithms:['HS256'],issuer:'securelab',audience:'securelab-web'})
+    req.user=await db.get('SELECT id,name,username,role,session_version FROM users WHERE id=?', [claims.id])
     if(!req.user) return res.status(401).json({message:'Хэрэглэгч олдсонгүй.'})
     if((claims.session_version||0)!==req.user.session_version) return res.status(401).json({message:'Нууц үг шинэчлэгдсэн. Дахин нэвтэрнэ үү.'})
     next()
@@ -239,12 +282,30 @@ app.post('/api/auth/register', (req, res) => {
 })
 
 app.post('/api/auth/login', async (req, res) => {
-  const identifier = req.body.identifier?.trim() || req.body.email?.trim() || ''
+  const body=req.body||{}
+  const identifier = String(body.identifier||body.email||'').trim().slice(0,160)
+  const password=typeof body.password==='string'&&Buffer.byteLength(body.password)<=72?body.password:''
+  pruneLoginAttempts()
+  const key=loginKey(req,identifier),ipKey=req.ip,record=loginAttempts.get(key),ipRecord=ipLoginAttempts.get(ipKey)
+  const lockedUntil=Math.max(record?.lockedUntil||0,ipRecord?.lockedUntil||0)
+  if(lockedUntil>Date.now()){
+    const seconds=Math.ceil((lockedUntil-Date.now())/1000);res.set('Retry-After',String(seconds))
+    return res.status(429).json({message:`Олон удаа буруу оролдсон байна. ${Math.ceil(seconds/60)} минутын дараа дахин оролдоно уу.`})
+  }
   const user = await db.get('SELECT * FROM users WHERE lower(email) = lower(?) OR lower(username) = lower(?)', [identifier, identifier])
-  if (!user || !bcrypt.compareSync(req.body.password || '', user.password_hash)) return res.status(401).json({ message: 'Нэвтрэх нэр эсвэл нууц үг буруу байна.' })
+  const valid=await bcrypt.compare(password,user?.password_hash||dummyPasswordHash)
+  if (!user || !valid){
+    const now=Date.now(),failures=(record?.failures||0)+1,ipFailures=(ipRecord?.failures||0)+1
+    const accountLock=failures>=LOGIN_LIMIT?now+LOCK_MS:0,ipLock=ipFailures>=IP_LOGIN_LIMIT?now+LOCK_MS:0
+    loginAttempts.set(key,{failures,lockedUntil:accountLock,updatedAt:now});ipLoginAttempts.set(ipKey,{failures:ipFailures,lockedUntil:ipLock,updatedAt:now})
+    if(accountLock||ipLock){res.set('Retry-After',String(LOCK_MS/1000));return res.status(429).json({message:'Олон удаа буруу оролдсон байна. 15 минутын дараа дахин оролдоно уу.'})}
+    return res.status(401).json({ message: 'Нэвтрэх нэр эсвэл нууц үг буруу байна.' })
+  }
+  loginAttempts.delete(key);ipLoginAttempts.delete(ipKey)
+  if(bcrypt.getRounds(user.password_hash)<12){user.password_hash=await bcrypt.hash(password,12);await db.run('UPDATE users SET password_hash=? WHERE id=?',[user.password_hash,user.id])}
   const safe = { id: user.id, name: user.name, email: user.email, username: user.username, role: user.role, session_version:user.session_version }
   await db.run('INSERT INTO login_events (user_id) VALUES (?)', [user.id])
-  res.json({ user: safe, token: jwt.sign(safe, JWT_SECRET, { expiresIn: '7d' }) })
+  res.json({ user: safe, token: jwt.sign({id:user.id,session_version:user.session_version}, JWT_SECRET, {algorithm:'HS256',issuer:'securelab',audience:'securelab-web',expiresIn:'8h'}) })
 })
 
 if (db.dialect === 'postgres') {
@@ -258,34 +319,51 @@ if (db.dialect === 'postgres') {
     score INTEGER NOT NULL, passed INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP
   )`)
 }
+await installAudit(app, db, auth, adminOnly)
 await installAnalytics(app, db, auth, adminOnly)
 await installNews(app, db, auth, adminOnly)
 app.post('/api/auth/password',auth,async(req,res)=>{
   const {currentPassword,password,confirmation}=req.body||{}
   if(typeof currentPassword!=='string'||!currentPassword||Buffer.byteLength(currentPassword)>72)
     return res.status(400).json({message:'Одоогийн нууц үгээ зөв оруулна уу.'})
-  if(typeof password!=='string'||password.length<8||Buffer.byteLength(password)>72)
-    return res.status(400).json({message:'Шинэ нууц үг 8-аас доошгүй тэмдэгт, 72 байтаас ихгүй байна.'})
+  const policyError=passwordError(password)
+  if(policyError)return res.status(400).json({message:policyError})
   if(password!==confirmation) return res.status(400).json({message:'Шинэ нууц үг давтан оруулсантай таарахгүй байна.'})
   const account=await db.get('SELECT password_hash FROM users WHERE id=?', [req.user.id])
-  if(!bcrypt.compareSync(currentPassword,account.password_hash))
+  if(!await bcrypt.compare(currentPassword,account.password_hash))
     return res.status(400).json({message:'Одоогийн нууц үг буруу байна.'})
-  if(bcrypt.compareSync(password,account.password_hash))
+  if(await bcrypt.compare(password,account.password_hash))
     return res.status(400).json({message:'Шинэ нууц үг өмнөхөөсөө өөр байх ёстой.'})
   await db.run('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?',
-    [bcrypt.hashSync(password,10),req.user.id])
+    [await bcrypt.hash(password,12),req.user.id])
   res.json({ok:true})
 })
+
+app.patch('/api/auth/profile',auth,async(req,res)=>{
+  const name=String(req.body?.name||'').trim()
+  const username=String(req.body?.username||'').trim()
+  const email=String(req.body?.email||'').trim().toLowerCase()
+  if(!name||!username||!email||name.length>120||!/^\p{L}[\p{L}\p{N}._-]{2,59}$/u.test(username)||email.length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({message:'Нэр, username болон зөв и-мэйл хаяг оруулна уу.'})
+  const duplicate=await db.get('SELECT id FROM users WHERE id<>? AND (lower(username)=lower(?) OR lower(email)=lower(?))', [req.user.id,username,email])
+  if(duplicate) return res.status(409).json({message:'Username эсвэл и-мэйл өөр хэрэглэгч дээр бүртгэлтэй байна.'})
+  const result=await db.run('UPDATE users SET name=?,username=?,email=? WHERE id=?', [name,username,email,req.user.id])
+  if(!result.changes) return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
+  const user=await db.get('SELECT id,name,email,username,role,session_version FROM users WHERE id=?', [req.user.id])
+  res.json({user})
+})
+
 app.post('/api/admin/users/:id/password',auth,adminOnly,async(req,res)=>{
-  const password=req.body.password
-  if(typeof password!=='string'||password.length<8||Buffer.byteLength(password)>72) return res.status(400).json({message:'Нууц үг 8-аас доошгүй тэмдэгт, 72 байтаас ихгүй байна.'})
-  const result=await db.run('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?', [bcrypt.hashSync(password,10),req.params.id])
+  const password=req.body?.password
+  const policyError=passwordError(password)
+  if(policyError)return res.status(400).json({message:policyError})
+  const result=await db.run('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?', [await bcrypt.hash(password,12),req.params.id])
   if(!result.changes)return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
   res.json({ok:true})
 })
 app.get('/api/lessons', auth, async (req, res) => {
   const rows = await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? ORDER BY l.id`, [req.user.id, req.user.id, req.user.id])
-  res.json(rows.map(lessonPayload))
+  res.json(rows.map(row=>{const lesson=lessonPayload(row);const {quiz_json,content_json,cases_json,objectives_json,summary_json,...safe}=lesson;return {...safe,quiz:lesson.quiz.map(({question,options})=>({question,options}))}}))
 })
 
 app.post('/api/lessons/:id/progress', auth, async (req, res) => {
@@ -293,13 +371,13 @@ app.post('/api/lessons/:id/progress', auth, async (req, res) => {
   if (!lesson) return res.status(404).json({ message: 'Хичээл олдсонгүй.' })
   const parsed = parseJson(lesson.quiz_json, [])
   const quiz = Array.isArray(parsed) ? parsed : [parsed]
-  const answers = req.body.answers
+  const answers = req.body?.answers
   if (!quiz.length || !Array.isArray(answers) || answers.length !== quiz.length || answers.some((a,i) => !Number.isInteger(a) || a < 0 || a >= quiz[i].options.length)) return res.status(400).json({message:'Бүх асуултад хариулна уу.'})
   const score = Math.round(quiz.filter((q,i)=>q.answer===answers[i]).length / quiz.length * 100)
   const completed = score >= 50
   await db.run('INSERT INTO exam_attempts (user_id, lesson_id, score, passed) VALUES (?, ?, ?, ?)', [req.user.id, req.params.id, score, completed ? 1 : 0])
   if (completed) await db.run(`INSERT INTO progress (user_id, lesson_id, completed) VALUES (?, ?, 1) ON CONFLICT(user_id, lesson_id) DO UPDATE SET completed=1, updated_at=CURRENT_TIMESTAMP`, [req.user.id, req.params.id])
-  res.json({ score, completed })
+  res.json({ score, completed, review:quiz.map(q=>({answer:q.answer,explain:q.explain})) })
 })
 
 app.get('/api/admin/overview', auth, adminOnly, async (req, res) => {
@@ -310,7 +388,7 @@ app.get('/api/admin/overview', auth, adminOnly, async (req, res) => {
     completions: Number((await db.get('SELECT count(*) count FROM progress WHERE completed=1')).count)
   }
   const lessons = await db.all('SELECT * FROM lessons ORDER BY id')
-  res.json({ stats, users, lessons: lessons.map((lesson) => ({...lesson, cases_json: lesson.cases_json || JSON.stringify(legacyCases(parseJson(lesson.content_json, [])))})) })
+  res.json({ stats, users, lessons: lessons.map(lessonPayload) })
 })
 
 app.post('/api/admin/lessons', auth, adminOnly, async (req, res) => {
@@ -319,6 +397,7 @@ app.post('/api/admin/lessons', auth, adminOnly, async (req, res) => {
     const result = await db.run("INSERT INTO lessons (title, description, duration, level, category, video_url, accent, content_json, cases_json, quiz_json, image_url) VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?) RETURNING id", [
       lesson.title, lesson.description, lesson.duration, lesson.level, lesson.category, lesson.accent, JSON.stringify(lesson.content), JSON.stringify(lesson.cases), JSON.stringify(lesson.quiz), lesson.image_url
     ])
+    await db.run('UPDATE lessons SET objectives_json=?,summary_json=? WHERE id=?',[JSON.stringify(lesson.objectives),JSON.stringify(lesson.summary),Number(result.lastInsertRowid)])
     res.json({ id: Number(result.lastInsertRowid) })
   } catch (error) {
     res.status(400).json({ message: error.message })
@@ -332,6 +411,7 @@ app.put('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
       lesson.title, lesson.description, lesson.duration, lesson.level, lesson.category, lesson.accent, lesson.image_url, JSON.stringify(lesson.content), JSON.stringify(lesson.cases), JSON.stringify(lesson.quiz), req.params.id
     ])
     if (!result.changes) return res.status(404).json({ message: 'Хичээл олдсонгүй.' })
+    await db.run('UPDATE lessons SET objectives_json=?,summary_json=? WHERE id=?',[JSON.stringify(lesson.objectives),JSON.stringify(lesson.summary),req.params.id])
     res.json({ ok: true })
   } catch (error) {
     res.status(400).json({ message: error.message })
@@ -350,7 +430,7 @@ app.delete('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
 
 app.patch('/api/admin/users/:id/role', auth, adminOnly, async (req, res) => {
   if (Number(req.params.id) === req.user.id) return res.status(400).json({ message: 'Өөрийн админ эрхийг өөрчлөх боломжгүй.' })
-  const role = req.body.role === 'admin' ? 'admin' : 'student'
+  const role = req.body?.role === 'admin' ? 'admin' : 'student'
   await db.run('UPDATE users SET role=? WHERE id=?', [role, req.params.id])
   res.json({ ok:true })
 })
@@ -362,13 +442,14 @@ app.delete('/api/admin/users/:id', auth, adminOnly, async (req, res) => {
 })
 
 app.post('/api/admin/users', auth, adminOnly, async (req, res) => {
-  const { name, username, email, password, role = 'student' } = req.body
-  if (!name?.trim() || !username?.trim() || !email?.trim() || password?.length < 6) {
-    return res.status(400).json({ message: 'Нэр, username, и-мэйл болон 6+ тэмдэгттэй нууц үг оруулна уу.' })
-  }
+  const { name, username, email, password, role = 'student' } = req.body||{}
+  const policyError=passwordError(password)
+  if (!name?.trim() || !username?.trim() || !email?.trim() || name.trim().length>120||!/^\p{L}[\p{L}\p{N}._-]{2,59}$/u.test(username.trim())||email.trim().length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())||policyError)
+    return res.status(400).json({ message: policyError||'Нэр, username болон зөв и-мэйл хаяг оруулна уу.' })
   try {
+    if(await db.get('SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)',[username.trim(),email.trim()]))return res.status(409).json({message:'Username эсвэл и-мэйл бүртгэлтэй байна.'})
     const result = await db.run('INSERT INTO users (name, username, email, password_hash, role) VALUES (?, ?, ?, ?, ?) RETURNING id', [
-      name.trim(), username.trim(), email.trim().toLowerCase(), bcrypt.hashSync(password, 10), role === 'admin' ? 'admin' : 'student'
+      name.trim(), username.trim(), email.trim().toLowerCase(), await bcrypt.hash(password, 12), role === 'admin' ? 'admin' : 'student'
     ])
     res.json({ id:Number(result.lastInsertRowid) })
   } catch {
@@ -383,7 +464,7 @@ app.post('/api/admin/users/:id/reset-progress', auth, adminOnly, async (req, res
 })
 
 app.use((error,req,res,next)=>{
-  if(error.type==='entity.too.large')return res.status(413).json({message:'Файл хэт том байна. 8 MB хүртэл PDF сонгоно уу.'})
+  if(error.type==='entity.too.large')return res.status(413).json({message:'Файл хэт том байна. 8 MB хүртэл PDF эсвэл зураг сонгоно уу.'})
   if(error.type==='entity.parse.failed')return res.status(400).json({message:'Хүсэлтийн мэдээлэл буруу байна.'})
   console.error(error)
   res.status(500).json({message:'Серверийн алдаа гарлаа. Дахин оролдоно уу.'})
