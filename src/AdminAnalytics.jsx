@@ -9,10 +9,11 @@ const clamp=value=>Math.max(0,Math.min(100,value||0))
 
 export default function AdminAnalytics({request}) {
   const [data,setData]=useState(null),[error,setError]=useState(''),[loading,setLoading]=useState(true)
-  const [query,setQuery]=useState(''),[role,setRole]=useState('student'),[course,setCourse]=useState('all')
+  const [query,setQuery]=useState(''),[role,setRole]=useState('student'),[course,setCourse]=useState('all'),[department,setDepartment]=useState('all')
   const load=async()=>{setLoading(true);setError('');try{setData(await request('/admin/analytics'))}catch(e){setError(e.message)}finally{setLoading(false)}}
   useEffect(()=>{load()},[])
-  const users=useMemo(()=>data?.users.filter(u=>(role==='all'||u.role===role)&&(u.name+' '+(u.username||'')).toLowerCase().includes(query.toLowerCase()))||[],[data,role,query])
+  const departments=useMemo(()=>[...new Set((data?.users||[]).map(u=>u.department).filter(Boolean))].sort(),[data])
+  const users=useMemo(()=>data?.users.filter(u=>(role==='all'||u.role===role)&&(department==='all'||u.department===department)&&(`${u.surname||''} ${u.name} ${u.email||''} ${u.position||''}`).toLowerCase().includes(query.toLowerCase()))||[],[data,role,department,query])
   const dashboard=useMemo(()=>{
     if(!data)return null
     const visibleCourses=course==='all'?data.courses:data.courses.filter(c=>String(c.id)===course)
@@ -47,10 +48,11 @@ export default function AdminAnalytics({request}) {
     {!data&&loading&&<p role="status">Тайлан ачаалж байна…</p>}
     {data&&<>
       <div className="bi-slicers" aria-label="Dashboard шүүлтүүр">
-        <label>Хэрэглэгч<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Нэр эсвэл username…"/></label>
+        <label>Хэрэглэгч<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Нэр, и-мэйл, албан тушаал…"/></label>
+        <label>Нэгж<select value={department} onChange={e=>setDepartment(e.target.value)}><option value="all">Бүх нэгж</option>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
         <label>Эрх<select value={role} onChange={e=>setRole(e.target.value)}><option value="student">Суралцагч</option><option value="admin">Админ</option><option value="all">Бүгд</option></select></label>
         <label>Хичээл<select value={course} onChange={e=>setCourse(e.target.value)}><option value="all">Бүх хичээл</option>{data.courses.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select></label>
-        <button onClick={()=>{setQuery('');setRole('student');setCourse('all')}}>Шүүлтүүр цэвэрлэх</button>
+        <button onClick={()=>{setQuery('');setRole('student');setCourse('all');setDepartment('all')}}>Шүүлтүүр цэвэрлэх</button>
       </div>
       <ReportActions users={users}/>
       <p className="analytics-note">Хандалт, хичээл нээсэн түүхийг {date(data.started_at)}-аас бүртгэнэ. Өмнөх шалгалтын оноонууд багтсан. Хичээл нээсэн нь уншиж дуусгасны баталгаа биш.</p>

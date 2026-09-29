@@ -44,7 +44,7 @@ export async function installAnalytics(app, db, auth, adminOnly) {
   })
 
   app.get('/api/admin/analytics', auth, adminOnly, async (req,res)=>{
-    const users=await db.all(`SELECT u.id,u.name,u.username,u.role,
+    const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role,
       (SELECT count(*) FROM login_events WHERE user_id=u.id) logins,
       (SELECT max(created_at) FROM login_events WHERE user_id=u.id) last_login
       FROM users u ORDER BY u.name,u.id`)

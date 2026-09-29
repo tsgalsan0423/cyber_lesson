@@ -114,6 +114,14 @@ if (db.dialect === 'sqlite') {
   if (!lessonColumns.includes('cases_json')) await db.exec("ALTER TABLE lessons ADD COLUMN cases_json TEXT")
 }
 
+// Staff directory fields are kept on the user account for profile and reporting.
+for (const [column, definition] of Object.entries({
+  surname:'TEXT', department:'TEXT', position:'TEXT', phone:'TEXT', must_change_password:'INTEGER NOT NULL DEFAULT 0'
+})) {
+  if (db.dialect === 'postgres') await db.exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${column} ${definition}`)
+  else if (!(await db.all('PRAGMA table_info(users)')).some(c=>c.name===column)) await db.exec(`ALTER TABLE users ADD COLUMN ${column} ${definition}`)
+}
+
 function parseJson(value, fallback) {
   try { return JSON.parse(value || '') } catch { return fallback }
 }
@@ -264,7 +272,7 @@ async function auth(req, res, next) {
   if (!token) return res.status(401).json({ message: 'Нэвтрэх шаардлагатай.' })
   try {
     const claims=jwt.verify(token, JWT_SECRET,{algorithms:['HS256'],issuer:'securelab',audience:'securelab-web'})
-    req.user=await db.get('SELECT id,name,username,role,session_version FROM users WHERE id=?', [claims.id])
+    req.user=await db.get('SELECT id,name,username,email,role,session_version,surname,department,position,phone,must_change_password FROM users WHERE id=?', [claims.id])
     if(!req.user) return res.status(401).json({message:'Хэрэглэгч олдсонгүй.'})
     if((claims.session_version||0)!==req.user.session_version) return res.status(401).json({message:'Нууц үг шинэчлэгдсэн. Дахин нэвтэрнэ үү.'})
     next()
@@ -303,7 +311,8 @@ app.post('/api/auth/login', async (req, res) => {
   }
   loginAttempts.delete(key);ipLoginAttempts.delete(ipKey)
   if(bcrypt.getRounds(user.password_hash)<12){user.password_hash=await bcrypt.hash(password,12);await db.run('UPDATE users SET password_hash=? WHERE id=?',[user.password_hash,user.id])}
-  const safe = { id: user.id, name: user.name, email: user.email, username: user.username, role: user.role, session_version:user.session_version }
+  const safe = { id:user.id,name:user.name,email:user.email,username:user.username,role:user.role,session_version:user.session_version,
+    surname:user.surname||'',department:user.department||'',position:user.position||'',phone:user.phone||'',must_change_password:!!user.must_change_password }
   await db.run('INSERT INTO login_events (user_id) VALUES (?)', [user.id])
   res.json({ user: safe, token: jwt.sign({id:user.id,session_version:user.session_version}, JWT_SECRET, {algorithm:'HS256',issuer:'securelab',audience:'securelab-web',expiresIn:'8h'}) })
 })
@@ -334,22 +343,22 @@ app.post('/api/auth/password',auth,async(req,res)=>{
     return res.status(400).json({message:'Одоогийн нууц үг буруу байна.'})
   if(await bcrypt.compare(password,account.password_hash))
     return res.status(400).json({message:'Шинэ нууц үг өмнөхөөсөө өөр байх ёстой.'})
-  await db.run('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?',
+  await db.run('UPDATE users SET password_hash=?,must_change_password=0,session_version=session_version+1 WHERE id=?',
     [await bcrypt.hash(password,12),req.user.id])
   res.json({ok:true})
 })
 
 app.patch('/api/auth/profile',auth,async(req,res)=>{
   const name=String(req.body?.name||'').trim()
-  const username=String(req.body?.username||'').trim()
   const email=String(req.body?.email||'').trim().toLowerCase()
-  if(!name||!username||!email||name.length>120||!/^\p{L}[\p{L}\p{N}._-]{2,59}$/u.test(username)||email.length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-    return res.status(400).json({message:'Нэр, username болон зөв и-мэйл хаяг оруулна уу.'})
-  const duplicate=await db.get('SELECT id FROM users WHERE id<>? AND (lower(username)=lower(?) OR lower(email)=lower(?))', [req.user.id,username,email])
-  if(duplicate) return res.status(409).json({message:'Username эсвэл и-мэйл өөр хэрэглэгч дээр бүртгэлтэй байна.'})
-  const result=await db.run('UPDATE users SET name=?,username=?,email=? WHERE id=?', [name,username,email,req.user.id])
+  const surname=String(req.body?.surname||'').trim(),department=String(req.body?.department||'').trim(),position=String(req.body?.position||'').trim()
+  if(!name||!email||name.length>120||surname.length>120||department.length>240||position.length>240||email.length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({message:'Нэр болон зөв и-мэйл хаяг оруулна уу.'})
+  const duplicate=await db.get('SELECT id FROM users WHERE id<>? AND (lower(username)=lower(?) OR lower(email)=lower(?))', [req.user.id,email,email])
+  if(duplicate) return res.status(409).json({message:'И-мэйл өөр хэрэглэгч дээр бүртгэлтэй байна.'})
+  const result=await db.run('UPDATE users SET name=?,surname=?,department=?,position=?,username=?,email=? WHERE id=?', [name,surname,department,position,email,email,req.user.id])
   if(!result.changes) return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
-  const user=await db.get('SELECT id,name,email,username,role,session_version FROM users WHERE id=?', [req.user.id])
+  const user=await db.get('SELECT id,name,email,username,role,session_version,surname,department,position,phone,must_change_password FROM users WHERE id=?', [req.user.id])
   res.json({user})
 })
 
@@ -381,7 +390,7 @@ app.post('/api/lessons/:id/progress', auth, async (req, res) => {
 })
 
 app.get('/api/admin/overview', auth, adminOnly, async (req, res) => {
-  const users = await db.all("SELECT id, name, username, email, role, created_at FROM users ORDER BY created_at DESC")
+  const users = await db.all("SELECT id,name,username,email,role,created_at,surname,department,position,phone,must_change_password FROM users ORDER BY created_at DESC")
   const stats = {
     users: Number((await db.get("SELECT count(*) count FROM users WHERE role='student'")).count),
     lessons: Number((await db.get('SELECT count(*) count FROM lessons')).count),
@@ -442,14 +451,15 @@ app.delete('/api/admin/users/:id', auth, adminOnly, async (req, res) => {
 })
 
 app.post('/api/admin/users', auth, adminOnly, async (req, res) => {
-  const { name, username, email, password, role = 'student' } = req.body||{}
+  const { name, surname='', department='', position='', phone='', email, password, role = 'student' } = req.body||{}
+  const username=String(email||'').trim().toLowerCase()
   const policyError=passwordError(password)
-  if (!name?.trim() || !username?.trim() || !email?.trim() || name.trim().length>120||!/^\p{L}[\p{L}\p{N}._-]{2,59}$/u.test(username.trim())||email.trim().length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())||policyError)
-    return res.status(400).json({ message: policyError||'Нэр, username болон зөв и-мэйл хаяг оруулна уу.' })
+  if (!name?.trim() || !email?.trim() || name.trim().length>120||email.trim().length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())||policyError)
+    return res.status(400).json({ message: policyError||'Нэр болон зөв и-мэйл хаяг оруулна уу.' })
   try {
     if(await db.get('SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)',[username.trim(),email.trim()]))return res.status(409).json({message:'Username эсвэл и-мэйл бүртгэлтэй байна.'})
-    const result = await db.run('INSERT INTO users (name, username, email, password_hash, role) VALUES (?, ?, ?, ?, ?) RETURNING id', [
-      name.trim(), username.trim(), email.trim().toLowerCase(), await bcrypt.hash(password, 12), role === 'admin' ? 'admin' : 'student'
+    const result = await db.run('INSERT INTO users (name,surname,department,position,phone,username,email,password_hash,role) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id', [
+      name.trim(),String(surname).trim(),String(department).trim(),String(position).trim(),String(phone).trim(),username,username,await bcrypt.hash(password,12),role==='admin'?'admin':'student'
     ])
     res.json({ id:Number(result.lastInsertRowid) })
   } catch {
