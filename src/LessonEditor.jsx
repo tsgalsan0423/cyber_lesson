@@ -189,7 +189,7 @@ export default function LessonEditor({lesson, request, onClose, onSaved, onPrevi
     if (issue) { setTab(issue.tab); setError(issue.message); return }
     onPreview({...normalize(form), id: lesson?.id || 0, completed:0})
   }
-  return <div className="modal-bg">
+  return <div className="modal-bg lesson-editor-bg">
     <form className="lesson-form lesson-editor" onSubmit={submit}>
       <button type="button" className="modal-close" title="Хаах" aria-label="Хаах" onClick={onClose}><X/></button>
       <span>{editing ? 'ХИЧЭЭЛ ЗАСАХ' : 'ШИНЭ ХИЧЭЭЛ'}</span>
