@@ -91,16 +91,6 @@ export default function AdminAnalytics({request}) {
         </section>
       </div>
       <div className="analytics-legend"><span><i/> Нээсэн</span><span><i/> Шалгалт</span><span><i/> Тэнцсэн</span><span><Target size={14}/> Босго 50%</span><span><TrendingUp size={14}/> Илүү өндөр хувь сайн</span></div>
-      <div className="admin-title"><div><span>ХЭРЭГЛЭГЧ ТУС БҮРЭЭР</span><h2>Суралцагчийн дэлгэрэнгүй</h2></div></div>
-      <div className="analytics-filter-summary"><span>{users.length} хэрэглэгч</span><span>{course==='all'?'Бүх хичээл':data.courses.find(c=>String(c.id)===course)?.title}</span><span>{role==='student'?'Суралцагч':role==='admin'?'Админ':'Бүх эрх'}</span></div>
-      <p className="analytics-note">Хэрэглэгчийн мөрийг дарж хичээл болон оролдлого тус бүрийн оноог харна. Дундаж нь шалгалт өгсөн хичээлүүдийн сүүлийн онооны дундаж.</p>
-      {!users.length&&<p className="analytics-empty">{data.users.some(u=>u.role==='student')?'Тохирох хэрэглэгч олдсонгүй.':'Суралцагч бүртгэгдээгүй байна. Доорх “Хэрэглэгч үүсгэх” товчоор нэмнэ үү.'}</p>}
-      {users.map(u=><details className="learner-report" key={u.id}>
-        <summary><div><b>{u.name}</b><small>@{u.username||'—'} · {u.role==='admin'?'Админ':'Суралцагч'}</small></div><span>Нээсэн <b>{u.viewed}/{data.courses.length}</b></span><span>Шалгалт <b>{u.tested}</b></span><span>Дүүргэсэн <b>{u.completed}</b></span><span>Дундаж <b>{score(u.average)}</b></span></summary>
-        <p className="analytics-note">Нэвтрэлт: {u.logins} · Сүүлийн нэвтрэлт: {date(u.last_login)}</p>
-        <div className="admin-table-wrap"><table><thead><tr><th>Хичээл</th><th>Нээсэн</th><th>Сүүлийн оноо</th><th>Шилдэг</th><th>Оролдлого</th><th>Сүүлийн үр дүн</th></tr></thead><tbody>{u.courses.map(c=><tr key={c.id}><td>{c.title}<small className="report-date">{c.last_exam?'Шалгалт: '+date(c.last_exam):c.completed?'Өмнөх дүүргэлттэй, оноо хадгалагдаагүй':''}</small></td><td>{c.opened?c.opens+' удаа':'Бүртгэлгүй'}<small className="report-date">{c.last_viewed?date(c.last_viewed):''}</small></td><td>{score(c.last_score)}</td><td>{score(c.best_score)}</td><td>{c.attempts}</td><td><span className={c.last_score===null?'':c.last_score>=50?'report-pass':'report-fail'}>{c.last_score===null?'Шалгалт өгөөгүй':c.last_score>=50?'Тэнцсэн':'Тэнцсэнгүй'}</span></td></tr>)}</tbody></table></div>
-        <details className="attempt-history"><summary>Бүх оролдлогын түүх</summary><div className="admin-table-wrap"><table><thead><tr><th>Хичээл</th><th>Огноо</th><th>Оноо</th><th>Үр дүн</th></tr></thead><tbody>{u.courses.flatMap(c=>c.history.map(a=>({...a,title:c.title}))).sort((a,b)=>b.id-a.id).map(a=><tr key={a.id}><td>{a.title}</td><td>{date(a.created_at)}</td><td>{a.score}%</td><td>{a.passed?'Тэнцсэн':'Тэнцсэнгүй'}</td></tr>)}</tbody></table></div>{!u.tested&&<p>Шалгалтын оролдлого байхгүй.</p>}</details>
-      </details>)}
     </>}
     <AuditLog request={request}/>
   </section>
