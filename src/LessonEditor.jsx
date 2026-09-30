@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Bold, BookOpen, CheckCircle2, FileQuestion, Image, List, ListChecks, Plus, Save, Trash2, X, Zap } from 'lucide-react'
+import {RichText} from './TheoryContent.jsx'
 
 const imageOptions = Array.from({length:10}, (_, index) => `/images/topic-${index + 1}.svg`)
 const iconOptions = ['shield','book','search','lock','key','wifi','eye','bug','save','alert','user','settings','share','phone','spark']
@@ -131,6 +132,23 @@ function MoveButtons({items, index, setItems}) {
   </div>
 }
 
+function EditorPreview({tab,form}) {
+  const objectives=form.objectivesText.split('\n').map(clean).filter(Boolean)
+  return <aside className="editor-live-preview" style={{'--lesson-accent':form.accent}}>
+    <div className="editor-preview-label"><span>ХЭРЭГЛЭГЧИЙН ХАРАГДАЦ</span><b>{tab==='meta'?'1. Хичээлийн тухай':tab==='theory'?'2. Онол':tab==='case'?'3. Дадлага ажил':'4. Шалгалт'}</b></div>
+    <div className="editor-preview-screen">
+      <img src={form.image_url||imageOptions[0]} alt=""/>
+      <small>{form.category||'Ангилал'} · {form.duration||'Хугацаа'}</small>
+      <h3>{form.title||'Хичээлийн нэр'}</h3>
+      {tab==='meta'&&<><p>{form.description||'Хичээлийн товч тайлбар энд харагдана.'}</p><div className="editor-preview-meta"><span>{form.level||'Түвшин'}</span><span>{form.duration||'Хугацаа'}</span></div><section><b>Энэ хичээлийн дараа та</b><RichText text={(objectives.length?objectives:['Хичээлийн зорилго энд харагдана.']).map(x=>'• '+x).join('\n')}/></section></>}
+      {tab==='theory'&&<div className="editor-preview-list">{form.content.map((item,index)=><section key={index}><em>ОНОЛ {index+1}</em><h4>{item.title||'Онолын гарчиг'}</h4><RichText text={item.text||'Онолын агуулга энд харагдана.'}/></section>)}</div>}
+      {tab==='case'&&<div className="editor-preview-list">{form.cases.map((item,index)=><section key={index}><em>ДАДЛАГА АЖИЛ {index+1}</em><h4>{item.title||'Дадлага ажлын нэр'}</h4><RichText text={item.text||'Нөхцөл, бодит жишээ энд харагдана.'}/><details><summary>Тайлбар харах</summary><RichText text={item.explanation||'Зөв арга хэмжээний тайлбар энд харагдана.'}/></details></section>)}</div>}
+      {tab==='quiz'&&<div className="editor-preview-list">{form.quiz.map((item,index)=><section key={index}><em>АСУУЛТ {index+1}</em><h4>{item.question||'Шалгалтын асуулт'}</h4><div className="editor-preview-options">{item.options.map((option,i)=><span className={Number(item.answer)===i?'correct':''} key={i}>{String.fromCharCode(65+i)}. {option||`Сонголт ${i+1}`}</span>)}</div></section>)}</div>}
+    </div>
+    <p>Зүүн талд засах бүрд энэ харагдац шууд шинэчлэгдэнэ.</p>
+  </aside>
+}
+
 export default function LessonEditor({lesson, request, onClose, onSaved, onPreview}) {
   const [form, setForm] = useState(() => toForm(lesson))
   const [tab, setTab] = useState('meta')
@@ -175,13 +193,15 @@ export default function LessonEditor({lesson, request, onClose, onSaved, onPrevi
     <form className="lesson-form lesson-editor" onSubmit={submit}>
       <button type="button" className="modal-close" title="Хаах" aria-label="Хаах" onClick={onClose}><X/></button>
       <span>{editing ? 'ХИЧЭЭЛ ЗАСАХ' : 'ШИНЭ ХИЧЭЭЛ'}</span>
-      <h2>{editing ? 'Бүх хэсгийг засварлах' : 'Онол · Дадлага ажил · Шалгалт нэмэх'}</h2>
+      <h2>{editing ? 'Хэрэглэгчийн харагдацтай хичээл засварлах' : 'Шинэ хичээл бэлтгэх'}</h2>
       <div className="editor-tabs" role="tablist">
-        <button type="button" className={tab==='meta'?'active':''} onClick={() => setTab('meta')}><BookOpen size={16}/> Мэдээлэл</button>
-        <button type="button" className={tab==='theory'?'active':''} onClick={() => setTab('theory')}><ListChecks size={16}/> Онол <b>{counts.theory}</b></button>
-        <button type="button" className={tab==='case'?'active':''} onClick={() => setTab('case')}><Zap size={16}/> Дадлага ажил <b>{counts.case}</b></button>
-        <button type="button" className={tab==='quiz'?'active':''} onClick={() => setTab('quiz')}><FileQuestion size={16}/> Шалгалт <b>{counts.quiz}</b></button>
+        <button type="button" className={tab==='meta'?'active':''} onClick={() => setTab('meta')}><BookOpen size={16}/> 1. Хичээлийн тухай</button>
+        <button type="button" className={tab==='theory'?'active':''} onClick={() => setTab('theory')}><ListChecks size={16}/> 2. Онол <b>{counts.theory}</b></button>
+        <button type="button" className={tab==='case'?'active':''} onClick={() => setTab('case')}><Zap size={16}/> 3. Дадлага ажил <b>{counts.case}</b></button>
+        <button type="button" className={tab==='quiz'?'active':''} onClick={() => setTab('quiz')}><FileQuestion size={16}/> 4. Шалгалт <b>{counts.quiz}</b></button>
       </div>
+
+      <div className="editor-workspace"><div className="editor-edit-column">
 
       {tab === 'meta' && <section className="editor-pane">
         <Field label="Хичээлийн нэр"><input value={form.title} onChange={(e) => setForm({...form, title:e.target.value})}/></Field>
@@ -242,6 +262,8 @@ export default function LessonEditor({lesson, request, onClose, onSaved, onPrevi
           <Field label="Зөв хариултын тайлбар"><RichTextarea value={item.explain} onChange={(explain) => updateArray('quiz', index, {explain})}/></Field>
         </article>)}
       </section>}
+
+      </div><EditorPreview tab={tab} form={form}/></div>
 
       {error && <div className="error">{error}</div>}
       <div className="editor-footer">
