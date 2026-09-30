@@ -21,12 +21,12 @@ async function request(path, options = {}) {
   return data
 }
 
-function Brand() {
-  return null
+function Brand({compact=false}) {
+  return <OrganizationLogo compact={compact}/>
 }
 
-function OrganizationLogo() {
-  return <div className="organization-logo"><img src="/images/khurdan-logo.png" alt="Төрийн цахим үйлчилгээний зохицуулалтын газар — ХУРДАН"/><span>Төрийн цахим үйлчилгээний зохицуулалтын газар</span></div>
+function OrganizationLogo({compact=false}) {
+  return <div className={`organization-logo${compact?' compact':''}`}><img src="/images/khurdan-logo.png" alt="Төрийн цахим үйлчилгээний зохицуулалтын газар — ХУРДАН"/><span>Төрийн цахим үйлчилгээний зохицуулалтын газар</span></div>
 }
 
 function ThemeToggle({ theme, toggleTheme }) {
@@ -198,7 +198,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
         {!filtered.length&&<div className="empty"><Search/><h3>Хичээл олдсонгүй</h3><p>Хайлтын үгээ өөрчлөөд үзээрэй.</p></div>}
         <section className="page-section" id="completed"><div className="section-head"><div><span>ТАНЫ ҮР ДҮН</span><h2>Дуусгасан болон шалгалт өгсөн хичээлүүд</h2></div></div><div className="lesson-grid">{completedLessons.map(lessonCard)}</div>{!completedLessons.length&&<div className="empty"><CheckCircle2/><h3>Шалгалт өгсөн хичээл алга байна</h3><p>Шалгалтаа дуусгахад оноо, үр дүн энд харагдана.</p></div>}</section>
         <section className="page-section"><News request={request} onCountChange={setNewsCount}/></section>
-      </main><footer><Brand/><span>© 2026 Нийтийн мэдээллийн дэд бүтэц, Нээлттэй өгөгдлийн газар</span><span>Мэдлэгтэй бол Аюулгүй</span></footer>
+      </main><footer><Brand compact/><span>© 2026 Нийтийн мэдээллийн дэд бүтэц, Нээлттэй өгөгдлийн газар</span><span>Мэдлэгтэй бол Аюулгүй</span></footer>
     </div>
     {passwordOpen&&<PasswordReset self user={user} request={request} onClose={()=>setPasswordOpen(false)} onSaved={()=>logout('Нууц үг амжилттай солигдлоо. Шинэ нууц үгээрээ дахин нэвтэрнэ үү.')}/>}
     {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setProfileOpen(false)}}/>}
