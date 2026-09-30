@@ -219,9 +219,16 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   useEffect(()=>{
     const sections=['admin-top','admin-lessons','admin-users','news']
     const onScroll=()=>{
+      const pageBottom=window.scrollY+window.innerHeight
+      const documentBottom=document.documentElement.scrollHeight
+      if(pageBottom>=documentBottom-8){
+        const lastSection=[...sections].reverse().find(id=>document.getElementById(id))
+        if(lastSection){setAdminActive(lastSection);return}
+      }
+      const activationLine=Math.min(220,Math.max(120,window.innerHeight*.25))
       const current=sections.reduce((active,id)=>{
         const element=document.getElementById(id)
-        return element&&element.getBoundingClientRect().top<=145?id:active
+        return element&&element.getBoundingClientRect().top<=activationLine?id:active
       },'admin-top')
       setAdminActive(current)
     }
@@ -247,7 +254,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   useEffect(()=>setUserPage(page=>Math.min(page,userPageCount)),[userPageCount])
   const pagedUsers=filteredUsers.slice((userPage-1)*usersPerPage,userPage*usersPerPage)
   return <div className="admin-shell">
-    <aside className="admin-side"><Brand/><div className="admin-badge"><ShieldCheck/> Админ удирдлага</div><nav><a className={adminActive==='admin-top'?'active':''} href="#admin-top"><LayoutGrid/>Хяналтын самбар</a><button className="learner-view" onClick={onLearnerView}><BookOpen/>Хичээл рүү орох</button><a className={adminActive==='admin-lessons'?'active':''} href="#admin-lessons"><Zap/>Интерактив хичээлүүд <span>{data.stats.lessons}</span></a><a className={adminActive==='admin-users'?'active':''} href="#admin-users"><Users/>Хэрэглэгчид <span>{data.stats.users}</span></a><a className={adminActive==='news'?'active':''} href="#news"><BookOpen/>Мэдээ мэдээлэл <span>{newsCount}</span></a></nav><div className="side-bottom"><div className="mini-shield"><div className="avatar">G</div><div><b>{user.name}</b><small>Системийн админ</small></div></div></div></aside>
+    <aside className="admin-side"><Brand/><div className="admin-badge"><ShieldCheck/> Админ удирдлага</div><nav><a className={adminActive==='admin-top'?'active':''} href="#admin-top" onClick={()=>setAdminActive('admin-top')}><LayoutGrid/>Хяналтын самбар</a><button className="learner-view" onClick={onLearnerView}><BookOpen/>Хичээл рүү орох</button><a className={adminActive==='admin-lessons'?'active':''} href="#admin-lessons" onClick={()=>setAdminActive('admin-lessons')}><Zap/>Интерактив хичээлүүд <span>{data.stats.lessons}</span></a><a className={adminActive==='admin-users'?'active':''} href="#admin-users" onClick={()=>setAdminActive('admin-users')}><Users/>Хэрэглэгчид <span>{data.stats.users}</span></a><a className={adminActive==='news'?'active':''} href="#news" onClick={()=>setAdminActive('news')}><BookOpen/>Мэдээ мэдээлэл <span>{newsCount}</span></a></nav><div className="side-bottom"><div className="mini-shield"><div className="avatar">G</div><div><b>{user.name}</b><small>Системийн админ</small></div></div></div></aside>
     <div className="admin-main"><header><div><small>СУРГАЛТЫН УДИРДЛАГА</small><h2>Админ панел</h2></div><div className="admin-header-actions"><div className="profile-wrap"><button type="button" className="profile admin-top-profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Админ</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordUser(user);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/><button className="preview-btn" onClick={onLearnerView}><BookOpen/>Хичээл үзэх</button><button className="primary" onClick={()=>openForm()}><Plus/>Шинэ хичээл</button></div></header>
       <main className="admin-content" id="admin-top"><div className="admin-welcome"><div><span>СИСТЕМИЙН ТОЙМ</span><h1>Сайн байна уу, {user.name}</h1><p>Сургалтын контент болон хэрэглэгчдийн мэдээллийг нэг дороос удирдана.</p></div><ShieldCheck/></div>
         {notice&&<p className="success-notice" role="status">{notice}</p>}<AdminAnalytics request={request}/>
