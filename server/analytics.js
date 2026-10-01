@@ -1,9 +1,7 @@
 import {filterProgressUsers} from './org-scope.js'
 
 async function loadProgressReports(db){
-  const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role,
-    (SELECT count(*) FROM login_events WHERE user_id=u.id) logins,
-    (SELECT max(created_at) FROM login_events WHERE user_id=u.id) last_login
+  const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role
     FROM users u ORDER BY u.name,u.id`)
   const lessons=await db.all('SELECT id,title FROM lessons ORDER BY id')
   const views=await db.all('SELECT * FROM lesson_views')
