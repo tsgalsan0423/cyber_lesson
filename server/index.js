@@ -3,6 +3,7 @@ import { installAnalytics } from './analytics.js'
 import { installAudit } from './audit.js'
 import { installPlainLanguage } from './plain-language-migration.js'
 import { installNews } from './news.js'
+import { createNotification,installNotifications } from './notifications.js'
 import { curriculum } from './curriculum.js'
 import { foundations } from './foundations.js'
 import { additionalCourses } from './additional-courses.js'
@@ -330,6 +331,7 @@ if (db.dialect === 'postgres') {
 }
 await installAudit(app, db, auth, adminOnly)
 await installAnalytics(app, db, auth, adminOnly)
+await installNotifications(app, db, auth)
 await installNews(app, db, auth, adminOnly)
 app.post('/api/auth/password',auth,async(req,res)=>{
   const {currentPassword,password,confirmation}=req.body||{}
@@ -407,6 +409,7 @@ app.post('/api/admin/lessons', auth, adminOnly, async (req, res) => {
       lesson.title, lesson.description, lesson.duration, lesson.level, lesson.category, lesson.accent, JSON.stringify(lesson.content), JSON.stringify(lesson.cases), JSON.stringify(lesson.quiz), lesson.image_url
     ])
     await db.run('UPDATE lessons SET objectives_json=?,summary_json=? WHERE id=?',[JSON.stringify(lesson.objectives),JSON.stringify(lesson.summary),Number(result.lastInsertRowid)])
+    await createNotification(db,{type:'lesson_new',title:'Шинэ хичээл нэмэгдлээ',message:lesson.title,targetUrl:'#lessons'})
     res.json({ id: Number(result.lastInsertRowid) })
   } catch (error) {
     res.status(400).json({ message: error.message })
@@ -421,6 +424,7 @@ app.put('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
     ])
     if (!result.changes) return res.status(404).json({ message: 'Хичээл олдсонгүй.' })
     await db.run('UPDATE lessons SET objectives_json=?,summary_json=? WHERE id=?',[JSON.stringify(lesson.objectives),JSON.stringify(lesson.summary),req.params.id])
+    await createNotification(db,{type:'lesson_updated',title:'Хичээл шинэчлэгдлээ',message:lesson.title,targetUrl:'#lessons'})
     res.json({ ok: true })
   } catch (error) {
     res.status(400).json({ message: error.message })
@@ -428,12 +432,14 @@ app.put('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
 })
 
 app.delete('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
+  const lesson=await db.get('SELECT title FROM lessons WHERE id=?',[req.params.id])
   await db.transaction(async (tx) => {
     await tx.run('DELETE FROM exam_attempts WHERE lesson_id=?', [req.params.id])
     await tx.run('DELETE FROM lesson_views WHERE lesson_id=?', [req.params.id])
     await tx.run('DELETE FROM progress WHERE lesson_id=?', [req.params.id])
     await tx.run('DELETE FROM lessons WHERE id=?', [req.params.id])
   })
+  if(lesson)await createNotification(db,{type:'lesson_deleted',title:'Хичээл хасагдлаа',message:lesson.title,targetUrl:'#lessons'})
   res.json({ ok: true })
 })
 

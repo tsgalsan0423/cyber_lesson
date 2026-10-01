@@ -1,3 +1,5 @@
+import {createNotification} from './notifications.js'
+
 export async function installNews(app, db, auth, adminOnly) {
   if (db.dialect === 'postgres') await db.exec(`CREATE TABLE IF NOT EXISTS news (
     id SERIAL PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL,
@@ -44,14 +46,23 @@ export async function installNews(app, db, auth, adminOnly) {
       pdf=bytes;mimeType=detected;filename=file.name.replace(/[\r\n/\\]/g,'_').slice(0,180)
     }
     const values=[title.trim(),body.trim(),author.trim(),category.trim(),filename,pdf,mimeType,externalUrl||null]
-    if(existing) await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
-    else {const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url) VALUES (?,?,?,?,?,?,?,?) RETURNING id', values);return res.status(201).json({id:Number(result.lastInsertRowid)})}
+    if(existing){
+      await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
+      await createNotification(db,{type:'news_updated',title:'Мэдээ шинэчлэгдлээ',message:title.trim(),targetUrl:'#news'})
+    }
+    else {
+      const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url) VALUES (?,?,?,?,?,?,?,?) RETURNING id', values)
+      await createNotification(db,{type:'news_new',title:'Шинэ мэдээ нийтлэгдлээ',message:title.trim(),targetUrl:'#news'})
+      return res.status(201).json({id:Number(result.lastInsertRowid)})
+    }
     res.json({ok:true})
   }
   app.post('/api/admin/news',auth,adminOnly,save)
   app.put('/api/admin/news/:id',auth,adminOnly,save)
   app.delete('/api/admin/news/:id',auth,adminOnly,async(req,res)=>{
+    const item=await db.get('SELECT title FROM news WHERE id=?',[req.params.id])
     const result=await db.run('DELETE FROM news WHERE id=?', [req.params.id])
+    if(result.changes)await createNotification(db,{type:'news_deleted',title:'Мэдээ хасагдлаа',message:item?.title||'',targetUrl:'#news'})
     res.status(result.changes?200:404).json(result.changes?{ok:true}:{message:'Мэдээ олдсонгүй.'})
   })
 }
