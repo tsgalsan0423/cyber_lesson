@@ -26,7 +26,7 @@ function Brand({compact=false}) {
 }
 
 function OrganizationLogo({compact=false}) {
-  return <div className={`organization-logo${compact?' compact':''}`}><img src="/images/khurdan-logo-v2.png" alt="Төрийн цахим үйлчилгээний зохицуулалтын газар — ХУРДАН"/><span>Төрийн цахим үйлчилгээний зохицуулалтын газар</span></div>
+  return <div className={`organization-logo${compact?' compact':''}`}><img src="/images/khurdan-logo-v2.png" alt="ХУРДАН лого"/></div>
 }
 
 function ThemeToggle({ theme, toggleTheme }) {
