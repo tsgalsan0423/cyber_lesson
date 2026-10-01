@@ -1,3 +1,30 @@
+import {filterProgressUsers} from './org-scope.js'
+
+async function loadProgressReports(db){
+  const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role,
+    (SELECT count(*) FROM login_events WHERE user_id=u.id) logins,
+    (SELECT max(created_at) FROM login_events WHERE user_id=u.id) last_login
+    FROM users u ORDER BY u.name,u.id`)
+  const lessons=await db.all('SELECT id,title FROM lessons ORDER BY id')
+  const views=await db.all('SELECT * FROM lesson_views')
+  const attempts=await db.all('SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC')
+  const completions=await db.all('SELECT user_id,lesson_id FROM progress WHERE completed=1')
+  const key=(userId,lessonId)=>userId+':'+lessonId
+  const viewMap=new Map(views.map(view=>[key(view.user_id,view.lesson_id),view]))
+  const attemptMap=new Map()
+  for(const attempt of attempts){const mapKey=key(attempt.user_id,attempt.lesson_id);if(!attemptMap.has(mapKey))attemptMap.set(mapKey,[]);attemptMap.get(mapKey).push(attempt)}
+  const completed=new Set(completions.map(item=>key(item.user_id,item.lesson_id)))
+  const reports=users.map(user=>{
+    const courses=lessons.map(lesson=>{
+      const mapKey=key(user.id,lesson.id),view=viewMap.get(mapKey),history=attemptMap.get(mapKey)||[]
+      return{id:lesson.id,title:lesson.title,opened:!!view,attempts:history.length,last_score:history[0]?.score??null,best_score:history.length?Math.max(...history.map(item=>item.score)):null,completed:completed.has(mapKey)}
+    })
+    const scores=courses.filter(course=>course.last_score!==null).map(course=>course.last_score)
+    return{...user,courses,viewed:courses.filter(course=>course.opened).length,tested:scores.length,completed:courses.filter(course=>course.completed).length,average:scores.length?Math.round(scores.reduce((sum,value)=>sum+value,0)/scores.length):null}
+  })
+  return{reports,lessons}
+}
+
 export async function installAnalytics(app, db, auth, adminOnly) {
   if (db.dialect === 'postgres') await db.exec(`
     CREATE TABLE IF NOT EXISTS login_events (
@@ -97,5 +124,11 @@ export async function installAnalytics(app, db, auth, adminOnly) {
         completed:students.filter(u=>u.courses.find(c=>c.id===l.id)?.completed).length
       }))
     })
+  })
+
+  app.get('/api/progress-scope',auth,async(req,res)=>{
+    const {reports,lessons}=await loadProgressReports(db)
+    const {scope,users}=filterProgressUsers(reports,req.user)
+    res.json({scope,lesson_count:lessons.length,users})
   })
 }
