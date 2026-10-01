@@ -14,6 +14,7 @@ export default function AdminAnalytics({request}) {
   useEffect(()=>{load()},[])
   const departments=useMemo(()=>[...new Set((data?.users||[]).map(u=>u.department).filter(Boolean))].sort(),[data])
   const users=useMemo(()=>data?.users.filter(u=>(role==='all'||u.role===role)&&(department==='all'||u.department===department)&&(`${u.surname||''} ${u.name} ${u.email||''} ${u.position||''}`).toLowerCase().includes(query.toLowerCase()))||[],[data,role,department,query])
+  const departmentUsers=useMemo(()=>department==='all'?[]:(data?.users||[]).filter(u=>u.department===department),[data,department])
   const dashboard=useMemo(()=>{
     if(!data)return null
     const visibleCourses=course==='all'?data.courses:data.courses.filter(c=>String(c.id)===course)
@@ -49,11 +50,12 @@ export default function AdminAnalytics({request}) {
     {data&&<>
       <div className="bi-slicers" aria-label="Dashboard шүүлтүүр">
         <label>Хэрэглэгч<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Нэр, и-мэйл, албан тушаал…"/></label>
-        <label>Нэгж<select value={department} onChange={e=>setDepartment(e.target.value)}><option value="all">Бүх нэгж</option>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
+        <label>Нэгж<select value={department} onChange={e=>{setDepartment(e.target.value);if(e.target.value!=='all')setRole('all')}}><option value="all">Бүх нэгж</option>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
         <label>Эрх<select value={role} onChange={e=>setRole(e.target.value)}><option value="student">Суралцагч</option><option value="admin">Админ</option><option value="all">Бүгд</option></select></label>
         <label>Хичээл<select value={course} onChange={e=>setCourse(e.target.value)}><option value="all">Бүх хичээл</option>{data.courses.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select></label>
         <button onClick={()=>{setQuery('');setRole('student');setCourse('all');setDepartment('all')}}>Шүүлтүүр цэвэрлэх</button>
       </div>
+      {department!=='all'&&<section className="department-users" aria-live="polite"><div className="department-users-head"><div><h3>{department}</h3><p>Тус нэгжид бүртгэлтэй бүх хэрэглэгч</p></div><strong>{departmentUsers.length}</strong></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>И-мэйл</th><th>Албан тушаал</th><th>Эрх</th></tr></thead><tbody>{departmentUsers.map(u=><tr key={u.id}><td><b>{u.surname?`${u.surname} `:''}{u.name}</b></td><td>{u.email||u.username}</td><td>{u.position||'—'}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td></tr>)}</tbody></table></div></section>}
       <ReportActions users={users}/>
       <p className="analytics-note">Хандалт, хичээл нээсэн түүхийг {date(data.started_at)}-аас бүртгэнэ. Өмнөх шалгалтын оноонууд багтсан. Хичээл нээсэн нь уншиж дуусгасны баталгаа биш.</p>
       <div className="dashboard-kpis">{kpis.map(({label,value,hint,icon:Icon,tone})=><article className={`kpi-card ${tone}`} key={label}><span><Icon size={18}/></span><div><small>{label}</small><strong>{value}</strong><em>{hint}</em></div></article>)}</div>

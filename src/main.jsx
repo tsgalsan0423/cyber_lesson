@@ -254,7 +254,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
     })
   },[data.users,userSearch])
   const departments=useMemo(()=>[...new Set(data.users.map(u=>u.department?.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'mn-MN')),[data.users])
-  const usersPerPage=5
+  const usersPerPage=10
   const userPageCount=Math.max(1,Math.ceil(filteredUsers.length/usersPerPage))
   useEffect(()=>setUserPage(page=>Math.min(page,userPageCount)),[userPageCount])
   const pagedUsers=filteredUsers.slice((userPage-1)*usersPerPage,userPage*usersPerPage)
