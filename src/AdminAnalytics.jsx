@@ -2,6 +2,7 @@ import React, {useEffect,useMemo,useState} from 'react'
 import {ReportActions,AuditLog} from './ReportActions.jsx'
 import {ActivityTrend,AttentionList,CourseBars,ScoreDistribution} from './AnalyticsCharts.jsx'
 import {Activity, Award, BarChart3, Eye, RefreshCw, Target, TrendingUp, UserCheck, Users} from 'lucide-react'
+import {compareDepartments,compareStaff} from './staffOrder.js'
 const date=value=>value?new Date(value.includes('T')?value:value.replace(' ','T')+'Z').toLocaleString('mn-MN'):'Бүртгэлгүй'
 const score=value=>value===null?'—':value+'%'
 const pct=(value,total)=>total?Math.round(value/total*100):0
@@ -12,9 +13,9 @@ export default function AdminAnalytics({request}) {
   const [query,setQuery]=useState(''),[role,setRole]=useState('student'),[course,setCourse]=useState('all'),[department,setDepartment]=useState('all')
   const load=async()=>{setLoading(true);setError('');try{setData(await request('/admin/analytics'))}catch(e){setError(e.message)}finally{setLoading(false)}}
   useEffect(()=>{load()},[])
-  const departments=useMemo(()=>[...new Set((data?.users||[]).map(u=>u.department).filter(Boolean))].sort(),[data])
+  const departments=useMemo(()=>[...new Set((data?.users||[]).map(u=>u.department).filter(Boolean))].sort(compareDepartments),[data])
   const users=useMemo(()=>data?.users.filter(u=>(role==='all'||u.role===role)&&(department==='all'||u.department===department)&&(`${u.surname||''} ${u.name} ${u.email||''} ${u.position||''}`).toLowerCase().includes(query.toLowerCase()))||[],[data,role,department,query])
-  const departmentUsers=useMemo(()=>department==='all'?[]:(data?.users||[]).filter(u=>u.department===department),[data,department])
+  const departmentUsers=useMemo(()=>department==='all'?[]:(data?.users||[]).filter(u=>u.department===department).sort(compareStaff),[data,department])
   const dashboard=useMemo(()=>{
     if(!data)return null
     const visibleCourses=course==='all'?data.courses:data.courses.filter(c=>String(c.id)===course)

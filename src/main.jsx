@@ -9,6 +9,7 @@ import PasswordReset from './PasswordReset.jsx'
 import LessonEditor from './LessonEditor.jsx'
 import ProfileEdit from './ProfileEdit.jsx'
 import {randomQuiz,originalAnswers} from './quizOrder.js'
+import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js'
 
 const API = '/api'
 const tokenKey = 'securelab-token'
@@ -247,13 +248,12 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   const preview=l=>setPreviewLesson({...l,content:JSON.parse(l.content_json||'[]'),cases:JSON.parse(l.cases_json||'[]'),quiz:JSON.parse(l.quiz_json||'[]'),completed:0})
   const filteredUsers=useMemo(()=>{
     const terms=userSearch.trim().toLocaleLowerCase('mn-MN').split(/\s+/).filter(Boolean)
-    if(!terms.length)return data.users
     return data.users.filter(u=>{
       const searchable=[u.surname,u.name,u.email,u.phone,u.department,u.position,u.role==='admin'?'админ':'суралцагч'].filter(Boolean).join(' ').toLocaleLowerCase('mn-MN')
-      return terms.every(term=>searchable.includes(term))
-    })
+      return !terms.length||terms.every(term=>searchable.includes(term))
+    }).sort(compareStaff)
   },[data.users,userSearch])
-  const departments=useMemo(()=>[...new Set(data.users.map(u=>u.department?.trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'mn-MN')),[data.users])
+  const departments=useMemo(()=>[...new Set([...activeDepartments,...data.users.map(u=>u.department?.trim()).filter(Boolean)])].sort(compareDepartments),[data.users])
   const usersPerPage=10
   const userPageCount=Math.max(1,Math.ceil(filteredUsers.length/usersPerPage))
   useEffect(()=>setUserPage(page=>Math.min(page,userPageCount)),[userPageCount])
