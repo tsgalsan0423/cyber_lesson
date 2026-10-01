@@ -22,6 +22,5 @@ export default function HomeMedia({lessons,onOpen}){
       <button type="button" className="home-slider-arrow next" aria-label="Дараагийн зураг" onClick={()=>move(1)}><ChevronRight/></button>
       <div className="home-slider-dots" aria-label="Slider сонгох">{slides.map((slide,index)=><button type="button" key={slide.id} className={index===active?'active':''} aria-label={`${index+1}-р зураг`} aria-current={index===active?'true':undefined} onClick={()=>setActive(index)}/>)}</div>
     </div>
-    <article className="home-video-card"><div><span>БОДИТ ЖИШЭЭ</span><h2>Фишинг халдлагыг таних</h2><p>Сэжигтэй имэйл, холбоосыг хэрхэн танихыг бичлэгээс үзээрэй.</p></div><video controls playsInline preload="metadata"><source src="/media/phishing.mp4" type="video/mp4"/>Таны төхөөрөмж энэ бичлэгийг тоглуулах боломжгүй байна.</video></article>
   </section>
 }
