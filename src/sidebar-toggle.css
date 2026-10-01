@@ -1,0 +1,1 @@
+@media(min-width:761px){.app-shell .menu-btn{display:grid;border:0;background:transparent;color:#536b83;margin-right:14px}.app-shell aside,.app-shell .main-area{transition:transform .25s ease,margin-left .25s ease,width .25s ease}.app-shell.sidebar-hidden aside{transform:translateX(-105%)}.app-shell.sidebar-hidden .main-area{margin-left:0;width:100%}}
