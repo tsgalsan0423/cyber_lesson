@@ -8,6 +8,7 @@
     "dev:client": "vite",
     "dev:server": "node --watch server/index.js",
     "build": "vite build",
+    "build:sites": "vite build && vite build --config vite.sites.config.js",
     "start": "node server/index.js",
     "import:staff": "node server/import-staff.js"
   },
