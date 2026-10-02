@@ -7,8 +7,8 @@ export default function News({request,admin=false,onCountChange}) {
   const [form,setForm]=useState(null),[file,setFile]=useState(null),[busy,setBusy]=useState(false),[search,setSearch]=useState('')
   const [section,setSection]=useState('organization'),[aiStatus,setAiStatus]=useState(null),[syncing,setSyncing]=useState(false),[syncMessage,setSyncMessage]=useState('')
   const [preview,setPreview]=useState(null)
-  const load=async()=>{setLoading(true);try{const next=await request('/news');setItems(next);onCountChange?.(next.length)}catch(e){setError(e.message)}finally{setLoading(false)}}
-  useEffect(()=>{load()},[])
+  const load=async(quiet=false)=>{if(!quiet)setLoading(true);try{const next=await request('/news');setItems(next);onCountChange?.(next.length)}catch(e){if(!quiet)setError(e.message)}finally{if(!quiet)setLoading(false)}}
+  useEffect(()=>{load();const timer=admin?null:window.setTimeout(()=>load(true),12000);return()=>{if(timer)window.clearTimeout(timer)}},[])
   useEffect(()=>{
     if(!admin)return
     request('/admin/news/status').then(async status=>{
@@ -22,7 +22,7 @@ export default function News({request,admin=false,onCountChange}) {
   },[admin])
   const syncInternational=async()=>{
     setSyncing(true);setError('');setSyncMessage('')
-    try{const result=await request('/admin/news/refresh-international',{method:'POST',body:JSON.stringify({force:true})});setSyncMessage(result.skipped?'Мэдээ шинэчлэх ажил аль хэдийн эхэлсэн байна.':`${result.added||0} шинэ гадаад мэдээ нэмэгдлээ.`);const status=await request('/admin/news/status');setAiStatus(status);await load()}
+    try{const result=await request('/admin/news/refresh-international',{method:'POST',body:JSON.stringify({})});setSyncMessage(result.skipped?result.message||'Мэдээ шинэчлэх ажил аль хэдийн эхэлсэн байна.':`${result.added||0} шинэ гадаад мэдээ нэмэгдлээ.`);const status=await request('/admin/news/status');setAiStatus(status);await load()}
     catch(e){setError(e.message)}finally{setSyncing(false)}
   }
   const save=async e=>{

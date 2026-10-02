@@ -142,7 +142,7 @@ const extractResponseText=data=>(data.output||[]).flatMap(item=>item.content||[]
 async function refreshInternationalNews(env,{force=false}={}){
   if(!env.OPENAI_API_KEY)return{configured:false,added:0,message:'AI мэдээний OPENAI_API_KEY тохируулаагүй байна.'}
   const now=Math.floor(Date.now()/1000),last=Number((await get(env,"SELECT value FROM system_meta WHERE key='international_news_last_sync'")||{}).value)||0
-  if(!force&&now-last<6*60*60)return{configured:true,skipped:true,added:0,last_synced_at:new Date(last*1000).toISOString()}
+  if(!force&&now-last<6*60*60)return{configured:true,skipped:true,added:0,message:'Гадаад мэдээг сүүлийн 6 цагт шинэчилсэн байна.',last_synced_at:new Date(last*1000).toISOString()}
   const lockToken=`${now}:${crypto.randomUUID()}`
   await run(env,"INSERT INTO system_meta(key,value) VALUES('international_news_sync_lock',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(substr(system_meta.value,1,10) AS INTEGER)<?",[lockToken,now-900])
   const lock=String((await get(env,"SELECT value FROM system_meta WHERE key='international_news_sync_lock'")||{}).value||'')
@@ -270,7 +270,7 @@ async function handleApi(request,env,ctx){
     return json({configured:!!env.OPENAI_API_KEY,last_synced_at:last?new Date(last*1000).toISOString():null,model:env.OPENAI_NEWS_MODEL||'gpt-5-mini'})
   }
   if(method==='POST'&&path==='/api/admin/news/refresh-international'){
-    try{const body=await bodyJson(request),result=await refreshInternationalNews(env,{force:!!body.force});return json(result,result.configured?200:503)}
+    try{const result=await refreshInternationalNews(env);return json(result,result.configured?200:503)}
     catch(error){return json({message:error.message||'Гадаад мэдээ шинэчлэхэд алдаа гарлаа.'},error.status||502)}
   }
   if(method==='GET'&&path==='/api/admin/overview'){const users=await all(env,'SELECT id,name,username,email,role,created_at,surname,department,position,phone,must_change_password FROM users ORDER BY created_at DESC'),lessons=await all(env,'SELECT * FROM lessons ORDER BY id');return json({stats:{users:Number((await get(env,"SELECT count(*) count FROM users WHERE role='student'")).count),lessons:Number((await get(env,'SELECT count(*) count FROM lessons')).count),completions:Number((await get(env,'SELECT count(*) count FROM progress WHERE completed=1')).count)},users,lessons:lessons.map(lessonPayload)})}
