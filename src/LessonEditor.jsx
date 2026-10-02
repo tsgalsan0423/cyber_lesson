@@ -4,7 +4,7 @@ import {RichText} from './TheoryContent.jsx'
 
 const imageOptions = Array.from({length:10}, (_, index) => `/images/topic-${index + 1}.svg`)
 const iconOptions = ['shield','book','search','lock','key','wifi','eye','bug','save','alert','user','settings','share','phone','spark']
-const levels = ['Анхан','Дунд','Ахисан']
+const levels = ['Анхан','Дунд','Хүнд']
 
 const newTheory = () => ({title:'', text:'', task:'', icon:'shield'})
 const newCase = () => ({title:'', text:'', explanation:'', task:'', icon:'search'})
@@ -35,7 +35,7 @@ function toForm(lesson) {
     summaryText:(lesson?.summary || safeParse(lesson?.summary_json,[])).join('\n'),
     description: lesson?.description || '',
     duration: lesson?.duration || '25-30 мин',
-    level: lesson?.level || 'Анхан',
+    level: lesson?.level === 'Ахисан' ? 'Хүнд' : lesson?.level || 'Анхан',
     category: lesson?.category || '',
     accent: lesson?.accent || '#2563eb',
     image_url: lesson?.image_url || imageOptions[0],

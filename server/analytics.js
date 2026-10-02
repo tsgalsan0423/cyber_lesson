@@ -1,4 +1,4 @@
-import {filterProgressUsers} from './org-scope.js'
+import {canResetPassword,filterProgressUsers} from './org-scope.js'
 
 async function loadProgressReports(db){
   const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role
@@ -127,6 +127,6 @@ export async function installAnalytics(app, db, auth, adminOnly) {
   app.get('/api/progress-scope',auth,async(req,res)=>{
     const {reports,lessons}=await loadProgressReports(db)
     const {scope,users}=filterProgressUsers(reports,req.user)
-    res.json({scope,lesson_count:lessons.length,users})
+    res.json({scope,lesson_count:lessons.length,users:users.map(user=>({...user,can_reset_password:canResetPassword(req.user,user)}))})
   })
 }

@@ -1,10 +1,10 @@
 import React,{useState} from 'react'
 import {X,Eye,EyeOff} from 'lucide-react'
 
-export default function PasswordReset({user,request,onClose,onSaved,self=false,mandatory=false}) {
+export default function PasswordReset({user,request,onClose,onSaved,self=false,mandatory=false,passwordPath=''}) {
   const [currentPassword,setCurrentPassword]=useState('')
   const [password,setPassword]=useState(''),[confirm,setConfirm]=useState(''),[show,setShow]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState('')
-  const save=async e=>{e.preventDefault();setError('');if(password!==confirm){setError('Нууц үг давтан оруулсантай таарахгүй байна.');return}setBusy(true);try{await request(self?'/auth/password':'/admin/users/'+user.id+'/password',{method:'POST',body:JSON.stringify({password,...(self?{currentPassword,confirmation:confirm}:{})})});onSaved()}catch(e){setError(e.message)}finally{setBusy(false)}}
+  const save=async e=>{e.preventDefault();setError('');if(password!==confirm){setError('Нууц үг давтан оруулсантай таарахгүй байна.');return}setBusy(true);try{await request(self?'/auth/password':passwordPath||'/admin/users/'+user.id+'/password',{method:'POST',body:JSON.stringify({password,...(self?{currentPassword,confirmation:confirm}:{})})});onSaved()}catch(e){setError(e.message)}finally{setBusy(false)}}
   return <div className="modal-bg"><form className="lesson-form" onSubmit={save} role="dialog" aria-modal="true" aria-label="Нууц үг солих">
     {!mandatory&&<button type="button" className="modal-close" aria-label="Хаах" disabled={busy} onClick={onClose}><X/></button>}
     <h2>Нууц үг шинэчлэх</h2><p>{user.name} · {user.email||user.username}</p>

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ArrowRight, BookOpen, Check, CheckCircle2, Clock3, Edit3, Eye, EyeOff, GraduationCap, LayoutGrid, LockKeyhole, LogOut, Menu, Moon, Play, PlayCircle, Plus, Search, Shield, ShieldCheck, Sparkles, Sun, Trash2, User, Users, Video, X, Zap } from 'lucide-react'
+import { ArrowRight, BookOpen, Check, CheckCircle2, ChevronLeft, ChevronRight, Clock3, Edit3, Eye, EyeOff, GraduationCap, LayoutGrid, LockKeyhole, LogOut, Menu, Moon, Play, PlayCircle, Plus, Search, Shield, ShieldCheck, Sparkles, Sun, Trash2, User, Users, Video, X, Zap } from 'lucide-react'
 import './styles.css'
 import TheoryContent,{RichText} from './TheoryContent.jsx'
 import AdminAnalytics from './AdminAnalytics.jsx'
@@ -10,7 +10,8 @@ import LessonEditor from './LessonEditor.jsx'
 import ProfileEdit from './ProfileEdit.jsx'
 import ProgressScope from './ProgressScope.jsx'
 import Notifications from './Notifications.jsx'
-import HomeMedia from './HomeMedia.jsx'
+import UserDetailModal from './UserDetailModal.jsx'
+import './home-media.css'
 import './sidebar-toggle.css'
 import {randomQuiz,originalAnswers} from './quizOrder.js'
 import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js'
@@ -18,6 +19,7 @@ import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js
 const API = '/api'
 const tokenKey = 'securelab-token'
 const userKey = 'securelab-user'
+const requireInitialPasswordChange = import.meta.env.VITE_REQUIRE_INITIAL_PASSWORD_CHANGE !== 'false'
 
 async function request(path, options = {}) {
   const res = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}), ...(localStorage.getItem(tokenKey) ? { Authorization: `Bearer ${localStorage.getItem(tokenKey)}` } : {}) } })
@@ -152,6 +154,16 @@ function LessonModal({ lesson, onClose, onComplete }) {
   </div></div>
 }
 
+function LessonCarousel({lessons,renderLesson}) {
+  const trackRef=useRef(null)
+  const move=direction=>trackRef.current?.scrollBy({left:direction*trackRef.current.clientWidth,behavior:'smooth'})
+  if(!lessons.length)return null
+  return <section className="lesson-carousel" aria-label="Хичээлүүд">
+    <div className="lesson-carousel-controls" aria-label="Хичээл гүйлгэх"><button type="button" onClick={()=>move(-1)} aria-label="Өмнөх хичээлүүд"><ChevronLeft/></button><button type="button" onClick={()=>move(1)} aria-label="Дараагийн хичээлүүд"><ChevronRight/></button></div>
+    <div className="lesson-carousel-track" ref={trackRef}>{lessons.map(renderLesson)}</div>
+  </section>
+}
+
 function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpdate }) {
   const [passwordOpen,setPasswordOpen]=useState(false)
   const [profileOpen,setProfileOpen]=useState(false),[profileMenu,setProfileMenu]=useState(false)
@@ -183,16 +195,20 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     request(`/lessons/${selected.id}/view`,{method:'POST',body:'{}'}).catch(e=>setViewError('Хичээл нээсэн түүх хадгалагдсангүй: '+e.message))
   },[selected?.id])
   const completeCount = lessons.filter(l=>l.completed).length
-  const filtered = useMemo(()=>lessons.filter(l => (filter === 'Бүгд' || l.category === filter) && (l.title+l.description+l.category).toLowerCase().includes(search.toLowerCase())),[lessons,search,filter])
-  const completedLessons = useMemo(()=>filtered.filter(l=>l.attempts>0||l.completed),[filtered])
-  const categories = ['Бүгд', ...new Set(lessons.map(l=>l.category))]
+  const levelFilters = ['Бүгд','Анхан','Дунд','Хүнд']
+  const matchingLessons = useMemo(()=>lessons.filter(l => {
+    const level=l.level==='Ахисан'?'Хүнд':l.level
+    return (filter==='Бүгд'||level===filter)&&(l.title+l.description+l.category+level).toLowerCase().includes(search.toLowerCase())
+  }),[lessons,search,filter])
+  const filtered = useMemo(()=>matchingLessons.filter(l=>!l.completed&&!l.attempts),[matchingLessons])
+  const completedLessons = useMemo(()=>matchingLessons.filter(l=>l.attempts>0||l.completed),[matchingLessons])
   const toggleComplete = async (lesson, answers) => {
     const result = await request(`/lessons/${lesson.id}/progress`, {method:'POST',body:JSON.stringify({answers})})
     setLessons(ls=>ls.map(l=>l.id===lesson.id?{...l,completed:result.completed?1:l.completed,last_score:result.score,attempts:(l.attempts||0)+1}:l))
     setSelected(s=>s?.id===lesson.id?{...s,completed:result.completed?1:s.completed,last_score:result.score}:s)
     return result
   }
-  const lessonCard=l=><article className="lesson-card" key={l.id} onClick={()=>setSelected(l)}><div className="thumb" style={{'--accent':l.accent}}><img className="topic-image" src={l.image_url||`/images/topic-${((l.id-1)%6)+1}.svg`} alt={l.title}/><span className="lesson-no">СЭДЭВ {l.id}</span>{l.completed ? <span className="status done"><Check/> +100 XP</span>:<span className="status"><Sparkles/> Эхлэх</span>}</div><div className="lesson-body"><div className="meta"><span>{l.category}</span><span><Clock3/> {l.duration}</span></div><h3>{l.title}</h3><p>{l.description}</p>{Boolean(l.completed)&&!l.attempts&&<div className="exam-status passed"><b>Өмнө дүүргэсэн</b><span>Хуучин шалгалтын оноо хадгалагдаагүй.</span></div>}{l.attempts>0&&<div className={l.last_score>=50?'exam-status passed':'exam-status failed'}><b>{l.last_score}% · {l.last_score>=50?'Тэнцсэн':'Тэнцсэнгүй'}</b><span>{l.attempts} оролдлого · Сүүлийн үр дүн</span></div>}<div className="lesson-foot"><span className={`level ${l.level}`}>{l.level}</span><button>{l.attempts>0?'Давтан үзэх':'Хичээл эхлэх'} <ArrowRight/></button></div></div></article>
+  const lessonCard=l=>{const level=l.level==='Ахисан'?'Хүнд':l.level;return <article className="lesson-card" key={l.id} onClick={()=>setSelected(l)}><div className="thumb" style={{'--accent':l.accent}}><img className="topic-image" src={l.image_url||`/images/topic-${((l.id-1)%6)+1}.svg`} alt={l.title}/><span className="lesson-no">СЭДЭВ {l.id}</span>{l.completed ? <span className="status done"><Check/> +100 XP</span>:<span className="status"><Sparkles/> Эхлэх</span>}</div><div className="lesson-body"><div className="meta"><span>{l.category}</span><span><Clock3/> {l.duration}</span></div><h3>{l.title}</h3><p>{l.description}</p>{Boolean(l.completed)&&!l.attempts&&<div className="exam-status passed"><b>Өмнө дүүргэсэн</b><span>Хуучин шалгалтын оноо хадгалагдаагүй.</span></div>}{l.attempts>0&&<div className={l.last_score>=50?'exam-status passed':'exam-status failed'}><b>{l.last_score}% · {l.last_score>=50?'Тэнцсэн':'Тэнцсэнгүй'}</b><span>{l.attempts} оролдлого · Сүүлийн үр дүн</span></div>}<div className="lesson-foot"><span className={`level ${level}`}>{level}</span><button>{l.attempts>0?'Давтан үзэх':'Хичээл эхлэх'} <ArrowRight/></button></div></div></article>}
   return <div className={`app-shell ${sidebarHidden?'sidebar-hidden':''}`}>
     <aside className={menu?'open':''}><div className="side-top"><OrganizationLogo/><button className="side-close" aria-label="Цэс хаах" title="Цэс хаах" onClick={()=>setMenu(false)}><X/></button></div><nav>{onAdminReturn&&<button className="admin-return" onClick={onAdminReturn}><ShieldCheck/>Админ панел руу</button>}<a className={activeSection==='top'?'active':''} onClick={()=>setMenu(false)} href="#top"><LayoutGrid/>Нүүр</a><a className={activeSection==='lessons'?'active':''} href="#lessons" onClick={()=>setMenu(false)}><BookOpen/>Миний хичээлүүд <span>{lessons.length}</span></a><a className={activeSection==='completed'?'active':''} href="#completed" onClick={()=>setMenu(false)}><CheckCircle2/>Дуусгасан <span>{lessons.filter(l=>l.attempts>0||l.completed).length}</span></a><a className={activeSection==='news'?'active':''} href="#news" onClick={()=>setMenu(false)}><BookOpen/>Мэдээ мэдээлэл <span>{newsCount}</span></a><a className={activeSection==='progress'?'active':''} href="#progress" onClick={()=>{setActiveSection('progress');setMenu(false)}}><GraduationCap/>Явц</a></nav><div className="side-bottom"><div className="mini-shield"><ShieldCheck/><div><b>Сургалт</b><small>Аюулгүй суралц</small></div></div></div></aside>
     {menu&&<div className="aside-overlay" onClick={()=>setMenu(false)}/>} 
@@ -201,11 +217,10 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
       <div className="home-video-cover" aria-hidden="true"><video autoPlay muted loop playsInline preload="auto" tabIndex="-1"><source src="/media/phishing.mp4" type="video/mp4"/></video></div>
       <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}
         <section className="welcome"><div><div className="eyebrow"><Sparkles/> ТАНЫ СУРАЛЦАХ ОРОН ЗАЙ</div><h1>Сайн байна уу, {user.name.split(' ')[0]} 👋</h1><p>Өнөөдөр нэг алхам урагшилж, цахим хамгаалалтаа бэхжүүлцгээе.</p><button className="primary" onClick={()=>lessons[0]&&setSelected(lessons.find(l=>!l.completed)||lessons[0])}><Play size={18} fill="currentColor"/>Хичээлээ үргэлжлүүлэх</button></div><div className="orb"><div className="orbit"><ShieldCheck/></div><span className="dot d1"/><span className="dot d2"/><span className="dot d3"/></div></section>
-        <HomeMedia lessons={lessons} onOpen={setSelected}/>
         <section className="progress-row"><div className="progress-copy"><span className="progress-icon"><Zap/></span><div><b>Таны ахиц</b><small>{completeCount === lessons.length && lessons.length ? 'Бүх хичээлийг амжилттай дуусгалаа!' : 'Тууштай байгаарай, та сайн явж байна!'}</small></div></div><div className="progress-main"><div className="progress-label"><span>Нийт гүйцэтгэл</span><b>{lessons.length?Math.round(completeCount/lessons.length*100):0}%</b></div><div className="progress-track"><span style={{width:`${lessons.length?completeCount/lessons.length*100:0}%`}}/></div></div><div className="count"><b>{completeCount}</b><span>/ {lessons.length} хичээл</span></div></section>
         <div className="section-head" id="lessons"><div><span>СОРИЛТОД БЭЛЭН ҮҮ?</span><h2>Онол · Дадлага ажил · Шалгалт</h2></div><div className="filter-mobile"><Search size={18}/><input placeholder="Хайх" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
-        <div className="filters">{categories.map(c=><button key={c} className={filter===c?'active':''} onClick={()=>setFilter(c)}>{c}</button>)}</div>
-        <div className="lesson-grid">{filtered.map(lessonCard)}</div>
+        <div className="filters level-filters">{levelFilters.map(level=><button key={level} className={filter===level?'active':''} onClick={()=>setFilter(level)}>{level}</button>)}</div>
+        <LessonCarousel lessons={filtered} renderLesson={lessonCard}/>
         {!filtered.length&&<div className="empty"><Search/><h3>Хичээл олдсонгүй</h3><p>Хайлтын үгээ өөрчлөөд үзээрэй.</p></div>}
         <section className="page-section" id="completed"><div className="section-head"><div><span>ТАНЫ ҮР ДҮН</span><h2>Дуусгасан болон шалгалт өгсөн хичээлүүд</h2></div></div><div className="lesson-grid">{completedLessons.map(lessonCard)}</div>{!completedLessons.length&&<div className="empty"><CheckCircle2/><h3>Шалгалт өгсөн хичээл алга байна</h3><p>Шалгалтаа дуусгахад оноо, үр дүн энд харагдана.</p></div>}</section>
         <section className="page-section"><News request={request} onCountChange={setNewsCount}/></section>
@@ -228,6 +243,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   const [editingLesson,setEditingLesson]=useState(null), [showForm,setShowForm]=useState(false), [error,setError]=useState('')
   const [showUserForm,setShowUserForm]=useState(false), [userForm,setUserForm]=useState(emptyUser), [showUserPassword,setShowUserPassword]=useState(false), [previewLesson,setPreviewLesson]=useState(null)
   const [passwordUser,setPasswordUser]=useState(null),[notice,setNotice]=useState('')
+  const [userDetail,setUserDetail]=useState(null)
   const [userSearch,setUserSearch]=useState(''),[userPage,setUserPage]=useState(1)
   const load=()=>request('/admin/overview').then(setData).catch(e=>setError(e.message))
   useEffect(()=>{load()},[])
@@ -256,6 +272,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   const userAction=async(id,action,body)=>{try{await request(`/admin/users/${id}/${action}`,{method:action==='role'?'PATCH':'POST',body:JSON.stringify(body||{})});load()}catch(e){setError(e.message)}}
   const deleteUser=async u=>{if(!confirm(`${u.name} хэрэглэгчийг бүх явцтай нь устгах уу?`))return;try{await request(`/admin/users/${u.id}`,{method:'DELETE'});load()}catch(e){setError(e.message)}}
   const createUser=async e=>{e.preventDefault();setError('');try{await request('/admin/users',{method:'POST',body:JSON.stringify(userForm)});setShowUserForm(false);setUserForm(emptyUser);load()}catch(e){setError(e.message)}}
+  const openUserDetail=async selectedUser=>{setUserDetail({data:null,loading:true,error:''});try{const details=await request(`/admin/users/${selectedUser.id}/details`);setUserDetail({data:details,loading:false,error:''})}catch(e){setUserDetail({data:null,loading:false,error:e.message})}}
   const preview=l=>setPreviewLesson({...l,content:JSON.parse(l.content_json||'[]'),cases:JSON.parse(l.cases_json||'[]'),quiz:JSON.parse(l.quiz_json||'[]'),completed:0})
   const filteredUsers=useMemo(()=>{
     const terms=userSearch.trim().toLocaleLowerCase('mn-MN').split(/\s+/).filter(Boolean)
@@ -276,11 +293,12 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
         {notice&&<p className="success-notice" role="status">{notice}</p>}<AdminAnalytics request={request}/>
         {error&&<div className="error">{error}</div>}
         <section className="admin-section" id="admin-lessons"><div className="admin-title"><div><span>КОНТЕНТ</span><h2>Интерактив хичээлүүд</h2></div><button onClick={()=>openForm()}><Plus/> Нэмэх</button></div><div className="admin-table-wrap"><table><thead><tr><th>Хичээл</th><th>Ангилал</th><th>Түвшин</th><th>Хугацаа</th><th>Үйлдэл</th></tr></thead><tbody>{data.lessons.map(l=><tr key={l.id}><td><i style={{background:l.accent}}><Zap/></i><b>{l.title}</b></td><td>{l.category}</td><td><span className="table-pill">{l.level}</span></td><td>{l.duration}</td><td><button aria-label="Хичээл үзэх" title="Хичээл үзэх" onClick={()=>preview(l)}><Eye/></button><button aria-label="Засах" title="Засах" onClick={()=>openForm(l)}><Edit3/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>remove(l)}><Trash2/></button></td></tr>)}</tbody></table></div></section>
-        <section className="admin-section" id="admin-users"><div className="admin-title"><div><span>БҮРЭН УДИРДЛАГА</span><h2>Хэрэглэгчид</h2></div><button onClick={()=>{setUserForm(emptyUser);setShowUserPassword(false);setError('');setShowUserForm(true)}}><Plus/> Хэрэглэгч үүсгэх</button></div><div className="user-table-tools"><label className="admin-user-search"><Search size={18}/><input type="search" value={userSearch} onChange={e=>{setUserSearch(e.target.value);setUserPage(1)}} placeholder="Нэр, и-мэйл, албан тушаал, нэгжээр хайх..." aria-label="Хэрэглэгч хайх"/>{userSearch&&<button type="button" title="Хайлтыг цэвэрлэх" aria-label="Хайлтыг цэвэрлэх" onClick={()=>{setUserSearch('');setUserPage(1)}}><X size={16}/></button>}</label><span>{userSearch?`${filteredUsers.length} хэрэглэгч олдлоо`:`Нийт ${data.users.length} хэрэглэгч`}</span></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Нэгж / Албан тушаал</th><th>И-мэйл</th><th>Эрх</th><th>Удирдах</th></tr></thead><tbody>{pagedUsers.map(u=><tr key={u.id}><td><div className="user-cell"><span>{u.name[0]}</span><b>{u.surname?u.surname+' ':''}{u.name}</b></div></td><td>{u.department||'—'}<br/><small>{u.position||'—'}</small></td><td><b className="username-text">{u.email}</b>{u.phone&&<><br/><small>{u.phone}</small></>}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td><td className="user-actions"><button title="Нууц үг шинэчлэх" aria-label={`${u.name}: нууц үг шинэчлэх`} onClick={()=>{setPasswordUser(u);setNotice('')}}><LockKeyhole/></button>{u.id!==user.id&&<><button aria-label="Эрх солих" title="Эрх солих" onClick={()=>userAction(u.id,'role',{role:u.role==='admin'?'student':'admin'})}><Shield/></button><button aria-label="Явц тэглэх" title="Явц тэглэх" onClick={()=>userAction(u.id,'reset-progress')}><Zap/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>deleteUser(u)}><Trash2/></button></>}</td></tr>)}{!pagedUsers.length&&<tr><td colSpan="5"><div className="user-search-empty"><Search size={22}/><b>Хэрэглэгч олдсонгүй</b><span>Хайлтын үгээ өөрчилж дахин оролдоно уу.</span></div></td></tr>}</tbody></table></div>{filteredUsers.length>usersPerPage&&<nav className="user-pagination" aria-label="Хэрэглэгчийн хуудас"><button type="button" disabled={userPage===1} onClick={()=>setUserPage(page=>page-1)} aria-label="Өмнөх хуудас">‹</button>{Array.from({length:userPageCount},(_,index)=>index+1).map(page=><button type="button" key={page} className={page===userPage?'active':''} aria-current={page===userPage?'page':undefined} onClick={()=>setUserPage(page)}>{page}</button>)}<button type="button" disabled={userPage===userPageCount} onClick={()=>setUserPage(page=>page+1)} aria-label="Дараагийн хуудас">›</button></nav>}<p className="user-page-summary">{filteredUsers.length?`${(userPage-1)*usersPerPage+1}–${Math.min(userPage*usersPerPage,filteredUsers.length)} / ${filteredUsers.length}`:'0 хэрэглэгч'}</p></section>
+        <section className="admin-section" id="admin-users"><div className="admin-title"><div><span>БҮРЭН УДИРДЛАГА</span><h2>Хэрэглэгчид</h2></div><button onClick={()=>{setUserForm(emptyUser);setShowUserPassword(false);setError('');setShowUserForm(true)}}><Plus/> Хэрэглэгч үүсгэх</button></div><div className="user-table-tools"><label className="admin-user-search"><Search size={18}/><input type="search" value={userSearch} onChange={e=>{setUserSearch(e.target.value);setUserPage(1)}} placeholder="Нэр, и-мэйл, албан тушаал, нэгжээр хайх..." aria-label="Хэрэглэгч хайх"/>{userSearch&&<button type="button" title="Хайлтыг цэвэрлэх" aria-label="Хайлтыг цэвэрлэх" onClick={()=>{setUserSearch('');setUserPage(1)}}><X size={16}/></button>}</label><span>{userSearch?`${filteredUsers.length} хэрэглэгч олдлоо`:`Нийт ${data.users.length} хэрэглэгч`}</span></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Нэгж / Албан тушаал</th><th>И-мэйл</th><th>Эрх</th><th>Удирдах</th></tr></thead><tbody>{pagedUsers.map(u=><tr key={u.id}><td><div className="user-cell"><span>{u.name[0]}</span><b>{u.surname?u.surname+' ':''}{u.name}</b></div></td><td>{u.department||'—'}<br/><small>{u.position||'—'}</small></td><td><b className="username-text">{u.email}</b>{u.phone&&<><br/><small>{u.phone}</small></>}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td><td className="user-actions"><button className="user-detail-button" title="Дэлгэрэнгүй мэдээлэл" aria-label={`${u.name}: дэлгэрэнгүй`} onClick={()=>openUserDetail(u)}><Eye/><span>Дэлгэрэнгүй</span></button><button title="Нууц үг шинэчлэх" aria-label={`${u.name}: нууц үг шинэчлэх`} onClick={()=>{setPasswordUser(u);setNotice('')}}><LockKeyhole/></button>{u.id!==user.id&&<><button aria-label="Эрх солих" title="Эрх солих" onClick={()=>userAction(u.id,'role',{role:u.role==='admin'?'student':'admin'})}><Shield/></button><button aria-label="Явц тэглэх" title="Явц тэглэх" onClick={()=>userAction(u.id,'reset-progress')}><Zap/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>deleteUser(u)}><Trash2/></button></>}</td></tr>)}{!pagedUsers.length&&<tr><td colSpan="5"><div className="user-search-empty"><Search size={22}/><b>Хэрэглэгч олдсонгүй</b><span>Хайлтын үгээ өөрчилж дахин оролдоно уу.</span></div></td></tr>}</tbody></table></div>{filteredUsers.length>usersPerPage&&<nav className="user-pagination" aria-label="Хэрэглэгчийн хуудас"><button type="button" disabled={userPage===1} onClick={()=>setUserPage(page=>page-1)} aria-label="Өмнөх хуудас">‹</button>{Array.from({length:userPageCount},(_,index)=>index+1).map(page=><button type="button" key={page} className={page===userPage?'active':''} aria-current={page===userPage?'page':undefined} onClick={()=>setUserPage(page)}>{page}</button>)}<button type="button" disabled={userPage===userPageCount} onClick={()=>setUserPage(page=>page+1)} aria-label="Дараагийн хуудас">›</button></nav>}<p className="user-page-summary">{filteredUsers.length?`${(userPage-1)*usersPerPage+1}–${Math.min(userPage*usersPerPage,filteredUsers.length)} / ${filteredUsers.length}`:'0 хэрэглэгч'}</p></section>
         <News request={request} admin onCountChange={setNewsCount}/>
       </main>
     </div>
     {passwordUser&&<PasswordReset user={passwordUser} request={request} onClose={()=>setPasswordUser(null)} onSaved={()=>{const self=passwordUser.id===user.id;setPasswordUser(null);if(self)logout();else setNotice('Нууц үг шинэчлэгдлээ. Хэрэглэгч шинэ нууц үгээр дахин нэвтэрнэ.')}}/>}
+    {userDetail&&<UserDetailModal data={userDetail.data} loading={userDetail.loading} error={userDetail.error} onClose={()=>setUserDetail(null)}/>}
     {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setProfileOpen(false);load()}}/>}
     {showForm&&<LessonEditor lesson={editingLesson} request={request} onClose={()=>setShowForm(false)} onSaved={()=>{setShowForm(false);setEditingLesson(null);load()}} onPreview={lesson=>setPreviewLesson(lesson)}/>}
     {showUserForm&&<div className="modal-bg"><form className="lesson-form" onSubmit={createUser}>
@@ -315,7 +333,7 @@ function App(){
   const updateUser=(updated)=>{const next={...user,...updated};localStorage.setItem(userKey,JSON.stringify(next));setUser(next)}
   const logout=(message)=>{setAuthNotice(typeof message==='string'?message:'');const path=user?.role==='admin'?'/admin/login':'/login';localStorage.removeItem(tokenKey);localStorage.removeItem(userKey);setUser(null);navigate(path,true)}
   if(!user) return <Auth notice={authNotice} key={route} adminOnly={route==='/admin/login'} onAuth={onAuth} theme={theme} toggleTheme={toggleTheme}/>
-  if(user.must_change_password) return <div className="app-shell"><PasswordReset mandatory self user={user} request={request} onClose={()=>{}} onSaved={()=>logout('Нууц үг амжилттай солигдлоо. Шинэ нууц үгээрээ дахин нэвтэрнэ үү.')}/></div>
+  if(requireInitialPasswordChange&&user.must_change_password) return <div className="app-shell"><PasswordReset mandatory self user={user} request={request} onClose={()=>{}} onSaved={()=>logout('Нууц үг амжилттай солигдлоо. Шинэ нууц үгээрээ дахин нэвтэрнэ үү.')}/></div>
   if(user.role==='admin') return route==='/admin/preview'?<Dashboard user={user} logout={logout} onAdminReturn={()=>navigate('/admin')} theme={theme} toggleTheme={toggleTheme} onUserUpdate={updateUser}/>:<AdminPanel user={user} logout={logout} onLearnerView={()=>navigate('/admin/preview')} theme={theme} toggleTheme={toggleTheme} onUserUpdate={updateUser}/>
   return <Dashboard user={user} logout={logout} theme={theme} toggleTheme={toggleTheme} onUserUpdate={updateUser}/>
 }

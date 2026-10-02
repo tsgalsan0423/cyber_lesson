@@ -83,7 +83,7 @@ try {
   assert.equal(report.summary.registered,2)
   assert.equal(report.summary.accessed,0)
   assert.equal(report.summary.viewed,0,'Admin previews are excluded')
-  token=(await (await call('/auth/login',{identifier:'dashboard-test',password:'Test-Password-9!'})).json()).token
+  token=(await (await call('/auth/login',{identifier:'dashboard@example.test',password:'Test-Password-9!'})).json()).token
   assert.equal((await call('/admin/analytics')).status,403)
   await call('/lessons/1/view',{})
   await call('/lessons/1/view',{})
@@ -100,30 +100,35 @@ try {
   assert.equal(report.summary.attempts,2)
   assert.equal(report.summary.pass_rate,50)
   assert.equal(report.daily.length,7)
-  const learner=report.users.find(u=>u.username==='dashboard-test')
+  const learner=report.users.find(u=>u.username==='dashboard@example.test')
   assert.equal(learner.viewed,2)
   assert.equal(learner.average,100)
   assert.equal(learner.courses[0].opens,2)
   assert.equal(learner.courses[0].last_score,100)
   assert.equal(learner.courses[0].history.length,2)
+  const detail=await (await call('/admin/users/'+learner.id+'/details')).json()
+  assert.equal(detail.login_count,1)
+  assert.ok([lessons[0].title,lessons[1].title].includes(detail.last_lesson.title))
+  assert.equal(detail.courses[0].opens,2)
+  assert.equal(detail.summary.viewed,2)
   console.log('PASS: dashboard totals, student isolation, unique views, login count, history and admin authorization')
   assert.equal((await call('/admin/users/'+learner.id+'/password',{password:'short'})).status,400)
-  const oldStudent=(await (await call('/auth/login',{identifier:'dashboard-test',password:'Test-Password-9!'})).json()).token
+  const oldStudent=(await (await call('/auth/login',{identifier:'dashboard@example.test',password:'Test-Password-9!'})).json()).token
   assert.equal((await call('/admin/users/'+learner.id+'/password',{password:'New-Test-Password-9!'})).status,200)
-  assert.equal((await call('/auth/login',{identifier:'dashboard-test',password:'Test-Password-9!'})).status,401)
+  assert.equal((await call('/auth/login',{identifier:'dashboard@example.test',password:'Test-Password-9!'})).status,401)
   token=oldStudent
   assert.equal((await call('/lessons')).status,401)
-  const newStudent=(await (await call('/auth/login',{identifier:'dashboard-test',password:'New-Test-Password-9!'})).json()).token
+  const newStudent=(await (await call('/auth/login',{identifier:'dashboard@example.test',password:'New-Test-Password-9!'})).json()).token
   token=newStudent
   assert.equal((await call('/lessons')).status,200)
   const profileUpdate=await fetch('http://127.0.0.1:'+port+'/api/auth/profile',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({name:'Dashboard Updated',username:'dashboard-updated',email:'dashboard-updated@example.test'})})
   assert.equal(profileUpdate.status,200)
   const updatedProfile=(await profileUpdate.json()).user
   assert.equal(updatedProfile.name,'Dashboard Updated')
-  assert.equal(updatedProfile.username,'dashboard-updated')
-  assert.equal((await call('/auth/login',{identifier:'dashboard-test',password:'New-Test-Password-9!'})).status,401)
-  assert.equal((await call('/auth/login',{identifier:'dashboard-updated',password:'New-Test-Password-9!'})).status,200)
-  const duplicateProfile=await fetch('http://127.0.0.1:'+port+'/api/auth/profile',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({name:'Dashboard Updated',username:'Galsan',email:'dashboard-updated@example.test'})})
+  assert.equal(updatedProfile.username,'dashboard-updated@example.test')
+  assert.equal((await call('/auth/login',{identifier:'dashboard@example.test',password:'New-Test-Password-9!'})).status,401)
+  assert.equal((await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'New-Test-Password-9!'})).status,200)
+  const duplicateProfile=await fetch('http://127.0.0.1:'+port+'/api/auth/profile',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({name:'Dashboard Updated',email:'admin@securelab.mn'})})
   assert.equal(duplicateProfile.status,409)
   assert.equal((await call('/admin/news',{title:'Unauthorized'})).status,403)
   token=adminToken
@@ -182,8 +187,8 @@ try {
   // A supplied target id cannot change someone else's password.
   assert.equal((await call('/auth/password',{...change,id:1,user_id:1})).status,200)
   assert.equal((await call('/lessons')).status,401)
-  assert.equal((await call('/auth/login',{identifier:'dashboard-updated',password:'New-Test-Password-9!'})).status,401)
-  const selfLogin=await call('/auth/login',{identifier:'dashboard-updated',password:'Self-Changed-Password-9!'})
+  assert.equal((await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'New-Test-Password-9!'})).status,401)
+  const selfLogin=await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'Self-Changed-Password-9!'})
   assert.equal(selfLogin.status,200)
   token=(await selfLogin.json()).token
   assert.equal((await call('/lessons')).status,200)
@@ -213,7 +218,7 @@ try {
   const updatedLesson={...authoredLesson,title:'Зассан сургалт',content:[{...authoredLesson.content[0],title:'Зассан онол'}],cases:[{...authoredLesson.cases[0],explanation:'Зассан тайлбар хадгалагдсан.'}],quiz:[{...authoredLesson.quiz[0],options:['Буруу','Зөв'],answer:1}]}
   const updated=await fetch('http://127.0.0.1:'+port+'/api/admin/lessons/'+authoredId,{method:'PUT',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify(updatedLesson)})
   assert.equal(updated.status,200)
-  token=(await (await call('/auth/login',{identifier:'dashboard-updated',password:'Self-Changed-Password-9!'})).json()).token
+  token=(await (await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'Self-Changed-Password-9!'})).json()).token
   const studentLessons=await (await call('/lessons')).json()
   const authored=studentLessons.find((lesson)=>lesson.id===authoredId)
   assert.equal(authored.title,'Зассан сургалт')

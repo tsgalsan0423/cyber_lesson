@@ -15,10 +15,11 @@ export const activeDepartments=[
 
 const hierarchy=[...activeDepartments.slice(0,7),'21 аймгийн хэлтэс',...activeDepartments.slice(7)]
 const departmentRanks=new Map(hierarchy.map((name,index)=>[normalize(name),index]))
+const provinceDepartment=value=>normalize(value).endsWith(normalize('аймгийн цахим шилжилт, үйлчилгээний хэлтэс'))
 
 export const compareDepartments=(a,b)=>{
-  const rankA=departmentRanks.get(normalize(a))??Number.MAX_SAFE_INTEGER
-  const rankB=departmentRanks.get(normalize(b))??Number.MAX_SAFE_INTEGER
+  const rankA=departmentRanks.get(normalize(a))??(provinceDepartment(a)?7:Number.MAX_SAFE_INTEGER)
+  const rankB=departmentRanks.get(normalize(b))??(provinceDepartment(b)?7:Number.MAX_SAFE_INTEGER)
   return rankA-rankB||String(a||'').localeCompare(String(b||''),'mn-MN')
 }
 

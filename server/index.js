@@ -8,6 +8,7 @@ import { curriculum } from './curriculum.js'
 import { foundations } from './foundations.js'
 import { additionalCourses } from './additional-courses.js'
 import { createDatabase } from './db.js'
+import { canResetPassword } from './org-scope.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import path from 'node:path'
@@ -114,6 +115,7 @@ if (db.dialect === 'sqlite') {
   if (!lessonColumns.includes('image_url')) await db.exec('ALTER TABLE lessons ADD COLUMN image_url TEXT')
   if (!lessonColumns.includes('cases_json')) await db.exec("ALTER TABLE lessons ADD COLUMN cases_json TEXT")
 }
+await db.exec("UPDATE lessons SET level='Хүнд' WHERE level='Ахисан'")
 
 // Staff directory fields are kept on the user account for profile and reporting.
 for (const [column, definition] of Object.entries({
@@ -171,7 +173,7 @@ function normalizeLessonInput(body) {
   const title = trimmed(body.title, 160)
   const description = trimmed(body.description, 600)
   const duration = trimmed(body.duration, 80)
-  const level = ['Анхан', 'Дунд', 'Ахисан'].includes(body.level) ? body.level : trimmed(body.level, 80)
+  const level = ['Анхан', 'Дунд', 'Хүнд'].includes(body.level) ? body.level : trimmed(body.level, 80)
   const category = trimmed(body.category, 120)
   const accent = /^#[0-9a-f]{6}$/i.test(body.accent || '') ? body.accent : '#2563eb'
   const image_url = normalizeImageUrl(body.image_url)
@@ -217,7 +219,7 @@ const lessons = [
   [3, 'Нийтийн Wi-Fi-ийн эрсдэл', 'Нээлттэй сүлжээнд мэдээллээ алдахгүй байхад VPN ба HTTPS хэрхэн тусалдаг вэ?', '09:45', 'Дунд', 'Сүлжээний аюулгүй байдал', 'https://www.youtube.com/embed/Dk-ZqQ-bfy4', '#38bdf8'],
   [4, 'Ransomware-ээс сэргийлэх нь', 'Хорт програм хэрхэн тархдаг, backup яагаад хэрэгтэй, халдлагын үед юу хийх вэ?', '13:32', 'Дунд', 'Хортой програм', 'https://www.youtube.com/embed/8zO7bH9mQ5Y', '#fb7185'],
   [5, 'Өгөгдөл ба хувийн нууц', 'Хуваалцаж буй мэдээллээ хянаж, төхөөрөмжийн privacy тохиргоог зөв хийх нь.', '07:18', 'Анхан', 'Хувийн мэдээлэл', 'https://www.youtube.com/embed/aO858HyFbKI', '#fbbf24'],
-  [6, 'Инцидент мэдээлэх алхам', 'Сэжигтэй үйлдэл илэрвэл баримтжуулах, тусгаарлах, мэдээлэх дараалал.', '10:06', 'Ахисан', 'Инцидент хариу', 'https://www.youtube.com/embed/P7f5BC7v32A', '#f97316']
+  [6, 'Инцидент мэдээлэх алхам', 'Сэжигтэй үйлдэл илэрвэл баримтжуулах, тусгаарлах, мэдээлэх дараалал.', '10:06', 'Хүнд', 'Инцидент хариу', 'https://www.youtube.com/embed/P7f5BC7v32A', '#f97316']
 ]
 for (const lesson of lessons) {
   if (db.dialect === 'postgres') await db.run('INSERT INTO lessons (id, title, description, duration, level, category, video_url, accent) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING', lesson)
@@ -368,9 +370,43 @@ app.post('/api/admin/users/:id/password',auth,adminOnly,async(req,res)=>{
   const password=req.body?.password
   const policyError=passwordError(password)
   if(policyError)return res.status(400).json({message:policyError})
-  const result=await db.run('UPDATE users SET password_hash=?,session_version=session_version+1 WHERE id=?', [await bcrypt.hash(password,12),req.params.id])
+  const result=await db.run('UPDATE users SET password_hash=?,must_change_password=1,session_version=session_version+1 WHERE id=?', [await bcrypt.hash(password,12),req.params.id])
   if(!result.changes)return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
   res.json({ok:true})
+})
+app.post('/api/managed-users/:id/password',auth,async(req,res)=>{
+  const password=req.body?.password
+  const policyError=passwordError(password)
+  if(policyError)return res.status(400).json({message:policyError})
+  const target=await db.get('SELECT id,name,username,email,role,department,position FROM users WHERE id=?',[req.params.id])
+  if(!target)return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
+  if(!canResetPassword(req.user,target))return res.status(403).json({message:'Энэ хэрэглэгчийн нууц үгийг шинэчлэх эрхгүй байна.'})
+  await db.run('UPDATE users SET password_hash=?,must_change_password=1,session_version=session_version+1 WHERE id=?',[await bcrypt.hash(password,12),target.id])
+  await db.run('INSERT INTO audit_logs (actor_id,actor_name,action,target) VALUES (?,?,?,?)',[
+    req.user.id,req.user.username||req.user.name||String(req.user.id),'POST',`/api/managed-users/${target.id}/password`
+  ])
+  res.json({ok:true})
+})
+
+app.get('/api/admin/users/:id/details',auth,adminOnly,async(req,res)=>{
+  const account=await db.get('SELECT id,name,surname,username,email,role,created_at,department,position,phone FROM users WHERE id=?',[req.params.id])
+  if(!account)return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
+  const login=await db.get('SELECT max(created_at) last_login,count(*) login_count FROM login_events WHERE user_id=?',[account.id])
+  const lastLesson=await db.get(`SELECT l.title,v.last_viewed_at FROM lesson_views v JOIN lessons l ON l.id=v.lesson_id
+    WHERE v.user_id=? ORDER BY v.last_viewed_at DESC LIMIT 1`,[account.id])
+  const courses=await db.all(`SELECT l.id,l.title,
+    COALESCE((SELECT opens FROM lesson_views WHERE user_id=? AND lesson_id=l.id),0) opens,
+    (SELECT last_viewed_at FROM lesson_views WHERE user_id=? AND lesson_id=l.id) last_viewed_at,
+    (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts,
+    (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score,
+    (SELECT max(score) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) best_score,
+    (SELECT count(*) FROM progress WHERE user_id=? AND lesson_id=l.id AND completed=1) completed
+    FROM lessons l ORDER BY l.id`,[account.id,account.id,account.id,account.id,account.id,account.id])
+  const normalized=courses.map(course=>({...course,opens:Number(course.opens)||0,attempts:Number(course.attempts)||0,completed:Number(course.completed)>0}))
+  const scores=normalized.filter(course=>course.last_score!==null).map(course=>Number(course.last_score))
+  res.json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,
+    last_lesson:lastLesson||null,summary:{viewed:normalized.filter(course=>course.opens>0).length,tested:normalized.filter(course=>course.attempts>0).length,
+      completed:normalized.filter(course=>course.completed).length,average:scores.length?Math.round(scores.reduce((sum,score)=>sum+score,0)/scores.length):null},courses:normalized})
 })
 app.get('/api/lessons', auth, async (req, res) => {
   const rows = await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? ORDER BY l.id`, [req.user.id, req.user.id, req.user.id])
