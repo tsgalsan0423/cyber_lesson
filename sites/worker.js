@@ -71,13 +71,19 @@ CREATE INDEX IF NOT EXISTS login_events_user ON login_events(user_id,created_at)
 CREATE TABLE IF NOT EXISTS lesson_views (user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,first_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,last_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,opens INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(user_id,lesson_id));
 CREATE TABLE IF NOT EXISTS analytics_metadata (started_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,actor_name TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT NOT NULL,author TEXT NOT NULL,category TEXT NOT NULL,filename TEXT,pdf BLOB,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,mime_type TEXT,external_url TEXT);
+CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT NOT NULL,author TEXT NOT NULL,category TEXT NOT NULL,filename TEXT,pdf BLOB,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,mime_type TEXT,external_url TEXT,news_type TEXT NOT NULL DEFAULT 'organization',source_name TEXT,ai_generated INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,target_url TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL,user_id INTEGER NOT NULL,read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(notification_id,user_id));
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
 `
 let schemaPromise
-const ensureSchema=env=>schemaPromise||(schemaPromise=env.DB.exec(schema))
+const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
+  await env.DB.exec(schema)
+  const columns=(await env.DB.prepare('PRAGMA table_info(news)').all()).results||[]
+  if(!columns.some(column=>column.name==='news_type'))await env.DB.exec("ALTER TABLE news ADD COLUMN news_type TEXT NOT NULL DEFAULT 'organization'")
+  if(!columns.some(column=>column.name==='source_name'))await env.DB.exec('ALTER TABLE news ADD COLUMN source_name TEXT')
+  if(!columns.some(column=>column.name==='ai_generated'))await env.DB.exec('ALTER TABLE news ADD COLUMN ai_generated INTEGER NOT NULL DEFAULT 0')
+})())
 const all=async(env,sql,values=[])=>(await env.DB.prepare(sql).bind(...values).all()).results||[]
 const get=async(env,sql,values=[])=>await env.DB.prepare(sql).bind(...values).first()
 const run=async(env,sql,values=[])=>{
@@ -130,6 +136,37 @@ function normalizeLessonInput(body){
   return lesson
 }
 async function notification(env,type,title,message,targetUrl){await run(env,'INSERT INTO notifications(type,title,message,target_url) VALUES(?,?,?,?)',[type,title.slice(0,160),message.slice(0,500),targetUrl])}
+
+const newsOutputSchema={type:'object',additionalProperties:false,properties:{items:{type:'array',items:{type:'object',additionalProperties:false,properties:{title:{type:'string'},summary:{type:'string'},source:{type:'string'},url:{type:'string'},date:{type:'string'}},required:['title','summary','source','url','date']}}},required:['items']}
+const extractResponseText=data=>(data.output||[]).flatMap(item=>item.content||[]).find(item=>item.type==='output_text')?.text||''
+async function refreshInternationalNews(env,{force=false}={}){
+  if(!env.OPENAI_API_KEY)return{configured:false,added:0,message:'AI мэдээний OPENAI_API_KEY тохируулаагүй байна.'}
+  const now=Math.floor(Date.now()/1000),last=Number((await get(env,"SELECT value FROM system_meta WHERE key='international_news_last_sync'")||{}).value)||0
+  if(!force&&now-last<6*60*60)return{configured:true,skipped:true,added:0,last_synced_at:new Date(last*1000).toISOString()}
+  const lockToken=`${now}:${crypto.randomUUID()}`
+  await run(env,"INSERT INTO system_meta(key,value) VALUES('international_news_sync_lock',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value WHERE CAST(substr(system_meta.value,1,10) AS INTEGER)<?",[lockToken,now-900])
+  const lock=String((await get(env,"SELECT value FROM system_meta WHERE key='international_news_sync_lock'")||{}).value||'')
+  if(lock!==lockToken)return{configured:true,skipped:true,added:0,message:'Мэдээ шинэчлэх ажил аль хэдийн эхэлсэн байна.'}
+  try{
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify({model:env.OPENAI_NEWS_MODEL||'gpt-5-mini',store:false,tools:[{type:'web_search'}],text:{format:{type:'json_schema',name:'international_cyber_news',strict:true,schema:newsOutputSchema}},instructions:'Та олон улсын кибер аюулгүй байдлын мэдээг Монгол хэлээр редакторлодог. Нээлттэй вэб хайлтаар сүүлийн 7 хоногт дэлхийн хэмжээнд нийтлэгдсэн, бодит эх сурвалжтай 5 хүртэлх чухал мэдээ ол. Албан байгууллага, үндэсний CERT, судалгааны төв эсвэл танигдсан хэвлэл мэдээллийн шууд нийтлэлийг сонго. Хайсан мэдээлэл хуучирсан, давхардсан, эсвэл эх сурвалж тодорхой биш бол бүү оруул. Гарчгийг Монгол хэлээр товч орчуул; summary-д 2-3 өгүүлбэрээр баримтыг өөрийн үгээр хураангуйл. Зөвхөн эх сурвалжаар батлагдсан зүйл бич, зөвлөгөө эсвэл таамаг нэмж болохгүй. url нь тухайн нийтлэлийн HTTPS хаяг байна. Огноог ISO 8601 хэлбэрээр өг; тогтоох боломжгүй бол хоосон тэмдэгт өг.',input:'Хамгийн сүүлийн үеийн олон улсын кибер аюулгүй байдлын мэдээг хайж, Монгол хэл дээрх гарчиг ба хураангуйг буцаа. Нэг сэдвийг давтан бүү оруул.'})})
+    if(!response.ok){const detail=await response.json().catch(()=>({}));throw Object.assign(new Error(detail.error?.message||'AI мэдээ хайх хүсэлт амжилтгүй.'),{status:502})}
+    const data=await response.json(),text=extractResponseText(data);let parsed
+    try{parsed=JSON.parse(text)}catch{throw Object.assign(new Error('AI мэдээний хариу уншигдахгүй байна.'),{status:502})}
+    const citations=new Set((data.output||[]).flatMap(item=>item.content||[]).flatMap(content=>content.annotations||[]).filter(item=>item.type==='url_citation').map(item=>item.url).filter(Boolean))
+    let added=0
+    for(const item of (parsed.items||[]).slice(0,5)){
+      const title=clean(item.title).slice(0,200),body=clean(item.summary).slice(0,3000),source=clean(item.source).slice(0,160),externalUrl=clean(item.url),date=Date.parse(item.date)
+      if(!title||!body||!source||!externalUrl.startsWith('https://')||!citations.has(externalUrl)||!Number.isFinite(date))continue
+      if(date<Date.now()-7*86400000||date>Date.now()+86400000)continue
+      if(await get(env,"SELECT id FROM news WHERE news_type='international' AND external_url=?",[externalUrl]))continue
+      await run(env,"INSERT INTO news(title,body,author,category,external_url,news_type,source_name,ai_generated) VALUES(?,?,?,'Кибер аюулгүй байдал',?,'international',?,1)",[title,body,source,externalUrl,source]);added++
+    }
+    await run(env,"INSERT INTO system_meta(key,value) VALUES('international_news_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[String(now)])
+    await run(env,"UPDATE system_meta SET value='0' WHERE key='international_news_sync_lock' AND value=?",[lockToken])
+    if(added)await notification(env,'news_new',`${added} шинэ гадаад мэдээ нэмэгдлээ`,'Олон улсын кибер аюулгүй байдлын мэдээг AI-аар хураангуйлж орууллаа.','#news')
+    return{configured:true,added,last_synced_at:new Date(now*1000).toISOString()}
+  }catch(error){await run(env,"UPDATE system_meta SET value='0' WHERE key='international_news_sync_lock' AND value=?",[lockToken]);throw error}
+}
 async function audit(env,user,action,target){await run(env,'INSERT INTO audit_logs(actor_id,actor_name,action,target) VALUES(?,?,?,?)',[user.id,user.username||user.name||String(user.id),action,target])}
 
 async function bootstrap(request,env){
@@ -171,7 +208,7 @@ async function progressReports(env){
   return{reports,lessons,attempts}
 }
 
-async function handleApi(request,env){
+async function handleApi(request,env,ctx){
   await ensureSchema(env)
   const url=new URL(request.url),path=url.pathname,method=request.method
   if(method==='POST'&&path==='/api/internal/bootstrap')return bootstrap(request,env)
@@ -217,7 +254,10 @@ async function handleApi(request,env){
   match=idMatch(/^\/api\/notifications\/(\d+)\/read$/)
   if(method==='POST'&&match){if(!await get(env,'SELECT id FROM notifications WHERE id=?',[match[1]]))return json({message:'Мэдэгдэл олдсонгүй.'},404);await run(env,'INSERT INTO notification_reads(notification_id,user_id) VALUES(?,?) ON CONFLICT(notification_id,user_id) DO NOTHING',[match[1],user.id]);return json({ok:true})}
   if(method==='POST'&&path==='/api/notifications/read-all'){const items=await all(env,'SELECT id FROM notifications WHERE created_at>=(SELECT created_at FROM users WHERE id=?)',[user.id]);if(items.length)await env.DB.batch(items.map(item=>env.DB.prepare('INSERT INTO notification_reads(notification_id,user_id) VALUES(?,?) ON CONFLICT(notification_id,user_id) DO NOTHING').bind(item.id,user.id)));return json({ok:true})}
-  if(method==='GET'&&path==='/api/news'){return json(await all(env,'SELECT id,title,body,author,category,filename,mime_type,external_url,length(pdf) size,created_at,updated_at FROM news ORDER BY id DESC'))}
+  if(method==='GET'&&path==='/api/news'){
+    if(env.OPENAI_API_KEY&&user.role!=='admin'){const refresh=refreshInternationalNews(env).catch(error=>console.error('international news refresh failed',error.message));if(ctx?.waitUntil)ctx.waitUntil(refresh)}
+    return json(await all(env,'SELECT id,title,body,author,category,filename,mime_type,external_url,news_type,source_name,ai_generated,length(pdf) size,created_at,updated_at FROM news ORDER BY id DESC'))
+  }
   match=idMatch(/^\/api\/news\/(\d+)\/(file|pdf)$/)
   if(method==='GET'&&match){const item=await get(env,'SELECT filename,mime_type,pdf FROM news WHERE id=?',[match[1]]);if(!item?.pdf)return json({message:'Файл олдсонгүй.'},404);const download=match[2]==='pdf'||url.searchParams.get('download')==='1';return response(item.pdf,200,{'content-type':item.mime_type||'application/pdf','cache-control':'private, no-store','content-disposition':`${download?'attachment':'inline'}; filename*=UTF-8''${encodeURIComponent(item.filename||'file')}`})}
   if(method==='GET'&&path==='/api/progress-scope'){const data=await progressReports(env),filtered=filterProgressUsers(data.reports,user);return json({scope:filtered.scope,lesson_count:data.lessons.length,users:filtered.users.map(item=>({...item,can_reset_password:canResetPassword(user,item)}))})}
@@ -225,6 +265,14 @@ async function handleApi(request,env){
   if(method==='POST'&&match){const body=await bodyJson(request),error=passwordError(body.password);if(error)return json({message:error},400);const target=await get(env,'SELECT id,name,username,email,role,department,position FROM users WHERE id=?',[match[1]]);if(!target)return json({message:'Хэрэглэгч олдсонгүй.'},404);if(!canResetPassword(user,target))return json({message:'Энэ хэрэглэгчийн нууц үгийг шинэчлэх эрхгүй байна.'},403);await run(env,'UPDATE users SET password_hash=?,must_change_password=1,session_version=session_version+1 WHERE id=?',[await bcrypt.hash(body.password,12),target.id]);await audit(env,user,'POST',`/api/managed-users/${target.id}/password`);return json({ok:true})}
 
   requireAdmin(user)
+  if(method==='GET'&&path==='/api/admin/news/status'){
+    const last=Number((await get(env,"SELECT value FROM system_meta WHERE key='international_news_last_sync'")||{}).value)||0
+    return json({configured:!!env.OPENAI_API_KEY,last_synced_at:last?new Date(last*1000).toISOString():null,model:env.OPENAI_NEWS_MODEL||'gpt-5-mini'})
+  }
+  if(method==='POST'&&path==='/api/admin/news/refresh-international'){
+    try{const body=await bodyJson(request),result=await refreshInternationalNews(env,{force:!!body.force});return json(result,result.configured?200:503)}
+    catch(error){return json({message:error.message||'Гадаад мэдээ шинэчлэхэд алдаа гарлаа.'},error.status||502)}
+  }
   if(method==='GET'&&path==='/api/admin/overview'){const users=await all(env,'SELECT id,name,username,email,role,created_at,surname,department,position,phone,must_change_password FROM users ORDER BY created_at DESC'),lessons=await all(env,'SELECT * FROM lessons ORDER BY id');return json({stats:{users:Number((await get(env,"SELECT count(*) count FROM users WHERE role='student'")).count),lessons:Number((await get(env,'SELECT count(*) count FROM lessons')).count),completions:Number((await get(env,'SELECT count(*) count FROM progress WHERE completed=1')).count)},users,lessons:lessons.map(lessonPayload)})}
   if(method==='GET'&&path==='/api/admin/audit-logs')return json(await all(env,'SELECT * FROM audit_logs ORDER BY id DESC LIMIT 200'))
   match=idMatch(/^\/api\/admin\/users\/(\d+)\/details$/)
@@ -243,17 +291,17 @@ async function handleApi(request,env){
   if(method==='PUT'&&match){try{const lesson=normalizeLessonInput(await bodyJson(request)),result=await run(env,'UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,accent=?,image_url=?,content_json=?,cases_json=?,quiz_json=?,objectives_json=?,summary_json=? WHERE id=?',[lesson.title,lesson.description,lesson.duration,lesson.level,lesson.category,lesson.accent,lesson.image_url,JSON.stringify(lesson.content),JSON.stringify(lesson.cases),JSON.stringify(lesson.quiz),JSON.stringify(lesson.objectives),JSON.stringify(lesson.summary),match[1]]);if(!result.changes)return json({message:'Хичээл олдсонгүй.'},404);await notification(env,'lesson_updated','Хичээл шинэчлэгдлээ',lesson.title,'#lessons');await audit(env,user,'PUT',path);return json({ok:true})}catch(error){return json({message:error.message},400)}}
   if(method==='DELETE'&&match){const lesson=await get(env,'SELECT title FROM lessons WHERE id=?',[match[1]]);await env.DB.batch(['DELETE FROM exam_attempts WHERE lesson_id=?','DELETE FROM lesson_views WHERE lesson_id=?','DELETE FROM progress WHERE lesson_id=?','DELETE FROM lessons WHERE id=?'].map(sql=>env.DB.prepare(sql).bind(match[1])));if(lesson)await notification(env,'lesson_deleted','Хичээл хасагдлаа',lesson.title,'#lessons');await audit(env,user,'DELETE',path);return json({ok:true})}
   const newsMatch=idMatch(/^\/api\/admin\/news(?:\/(\d+))?$/)
-  if((method==='POST'||method==='PUT')&&newsMatch){const body=await bodyJson(request),existing=newsMatch[1]?await get(env,'SELECT * FROM news WHERE id=?',[newsMatch[1]]):null;if(newsMatch[1]&&!existing)return json({message:'Мэдээ олдсонгүй.'},404);if(![body.title,body.body,body.author,body.category].every(v=>typeof v==='string'&&v.trim()))return json({message:'Мэдээний мэдээллийг бүрэн бөглөнө үү.'},400);let pdf=body.removeFile?null:existing?.pdf||null,filename=body.removeFile?null:existing?.filename||null,mime=body.removeFile?null:existing?.mime_type||null;if(body.file){pdf=fromBase64(body.file.base64);filename=clean(body.file.name).replace(/[\r\n/\\]/g,'_').slice(0,180);mime=filename.toLowerCase().endsWith('.pdf')?'application/pdf':filename.toLowerCase().endsWith('.png')?'image/png':filename.toLowerCase().match(/\.jpe?g$/)?'image/jpeg':'image/webp';if(pdf.length>8*1024*1024)return json({message:'Файл 8 MB хүртэл байна.'},400)}const values=[clean(body.title),clean(body.body),clean(body.author),clean(body.category),filename,pdf,mime,clean(body.external_url)||null];if(existing){await run(env,'UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[...values,existing.id]);await notification(env,'news_updated','Мэдээ шинэчлэгдлээ',values[0],'#news');await audit(env,user,'PUT',path);return json({ok:true})}const result=await run(env,'INSERT INTO news(title,body,author,category,filename,pdf,mime_type,external_url) VALUES(?,?,?,?,?,?,?,?)',values);await notification(env,'news_new','Шинэ мэдээ нийтлэгдлээ',values[0],'#news');await audit(env,user,'POST',`${path}/${result.lastInsertRowid}`);return json({id:result.lastInsertRowid},201)}
+  if((method==='POST'||method==='PUT')&&newsMatch){const body=await bodyJson(request),existing=newsMatch[1]?await get(env,'SELECT * FROM news WHERE id=?',[newsMatch[1]]):null;if(newsMatch[1]&&!existing)return json({message:'Мэдээ олдсонгүй.'},404);if(![body.title,body.body,body.author,body.category].every(v=>typeof v==='string'&&v.trim()))return json({message:'Мэдээний мэдээллийг бүрэн бөглөнө үү.'},400);let pdf=body.removeFile?null:existing?.pdf||null,filename=body.removeFile?null:existing?.filename||null,mime=body.removeFile?null:existing?.mime_type||null;if(body.file){pdf=fromBase64(body.file.base64);filename=clean(body.file.name).replace(/[\r\n/\\]/g,'_').slice(0,180);mime=filename.toLowerCase().endsWith('.pdf')?'application/pdf':filename.toLowerCase().endsWith('.png')?'image/png':filename.toLowerCase().match(/\.jpe?g$/)?'image/jpeg':'image/webp';if(pdf.length>8*1024*1024)return json({message:'Файл 8 MB хүртэл байна.'},400)}const type=body.news_type==='international'?'international':'organization',sourceName=clean(body.source_name)||null,values=[clean(body.title),clean(body.body),clean(body.author),clean(body.category),filename,pdf,mime,clean(body.external_url)||null,type,sourceName];if(existing){await run(env,'UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,news_type=?,source_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[...values,existing.id]);await notification(env,'news_updated','Мэдээ шинэчлэгдлээ',values[0],'#news');await audit(env,user,'PUT',path);return json({ok:true})}const result=await run(env,'INSERT INTO news(title,body,author,category,filename,pdf,mime_type,external_url,news_type,source_name) VALUES(?,?,?,?,?,?,?,?,?,?)',values);await notification(env,'news_new','Шинэ мэдээ нийтлэгдлээ',values[0],'#news');await audit(env,user,'POST',`${path}/${result.lastInsertRowid}`);return json({id:result.lastInsertRowid},201)}
   if(method==='DELETE'&&newsMatch?.[1]){const item=await get(env,'SELECT title FROM news WHERE id=?',[newsMatch[1]]),result=await run(env,'DELETE FROM news WHERE id=?',[newsMatch[1]]);if(!result.changes)return json({message:'Мэдээ олдсонгүй.'},404);await notification(env,'news_deleted','Мэдээ хасагдлаа',item?.title||'','#news');await audit(env,user,'DELETE',path);return json({ok:true})}
   if(method==='GET'&&path==='/api/admin/analytics'){const data=await progressReports(env),loginRows=await all(env,'SELECT user_id,count(*) logins,max(created_at) last_login FROM login_events GROUP BY user_id'),loginMap=new Map(loginRows.map(x=>[x.user_id,x])),users=data.reports.map(item=>({...item,logins:Number(loginMap.get(item.id)?.logins)||0,last_login:loginMap.get(item.id)?.last_login||null})),students=users.filter(x=>x.role==='student'),studentIds=new Set(students.map(x=>x.id)),attempts=data.attempts.filter(x=>studentIds.has(x.user_id)),daily=[];for(let i=6;i>=0;i--){const day=new Date(Date.now()-i*86400000).toISOString().slice(0,10),ids=new Set((await all(env,"SELECT DISTINCT e.user_id FROM login_events e JOIN users u ON u.id=e.user_id WHERE u.role='student' AND date(e.created_at)=?",[day])).map(x=>x.user_id));daily.push({day,users:ids.size})}const active7=Number((await get(env,"SELECT count(DISTINCT e.user_id) n FROM login_events e JOIN users u ON u.id=e.user_id WHERE u.role='student' AND e.created_at>=datetime('now','-7 days')")).n);return json({started_at:(await get(env,'SELECT started_at FROM analytics_metadata LIMIT 1'))?.started_at||null,summary:{registered:students.length,accessed:students.filter(x=>x.logins>0).length,logins:students.reduce((n,x)=>n+x.logins,0),active7,viewed:students.reduce((n,x)=>n+x.viewed,0),tested:students.filter(x=>x.tested>0).length,attempts:attempts.length,pass_rate:attempts.length?Math.round(attempts.filter(x=>x.passed).length/attempts.length*100):null},daily,users,courses:data.lessons.map(lesson=>({...lesson,viewed:students.filter(x=>x.courses.find(c=>c.id===lesson.id)?.opened).length,tested:students.filter(x=>x.courses.find(c=>c.id===lesson.id)?.attempts>0).length,completed:students.filter(x=>x.courses.find(c=>c.id===lesson.id)?.completed).length}))})}
   return json({message:'API зам олдсонгүй.'},404)
 }
 
 export default{
-  async fetch(request,env){
+  async fetch(request,env,ctx){
     try{
       const url=new URL(request.url)
-      if(url.pathname.startsWith('/api/'))return await handleApi(request,env)
+      if(url.pathname.startsWith('/api/'))return await handleApi(request,env,ctx)
       if(request.method==='GET'||request.method==='HEAD')return staticAsset(request)
       return json({message:'Зам олдсонгүй.'},404)
     }catch(error){console.error(error);return json({message:error?.message||'Серверийн алдаа гарлаа.'},error?.status||500)}
