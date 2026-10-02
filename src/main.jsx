@@ -170,23 +170,10 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
   const [activeSection,setActiveSection]=useState('top')
   const [newsCount,setNewsCount]=useState(0)
   const [sidebarHidden,setSidebarHidden]=useState(()=>localStorage.getItem('securelab-sidebar-hidden')!=='false')
-  const [lessons, setLessons] = useState([]), [selected, setSelected] = useState(null), [search, setSearch] = useState(''), [filter, setFilter] = useState('Бүгд'), [menu, setMenu] = useState(false)
-  const searchInputRef=useRef(null)
+  const [lessons, setLessons] = useState([]), [selected, setSelected] = useState(null), [filter, setFilter] = useState('Бүгд'), [menu, setMenu] = useState(false)
   useEffect(()=>{ request('/lessons').then(setLessons).catch(()=>logout()) }, [])
   useEffect(()=>{ request('/news').then(items=>setNewsCount(items.length)).catch(()=>{}) }, [])
   useEffect(()=>{localStorage.setItem('securelab-sidebar-hidden',String(sidebarHidden))},[sidebarHidden])
-  useEffect(()=>{
-    const onShortcut=e=>{
-      if(e.key.toLowerCase()!=='k'||!(e.metaKey||e.ctrlKey)||e.altKey) return
-      const target=e.target
-      const editing=target instanceof HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
-      if(editing&&target!==searchInputRef.current) return
-      e.preventDefault()
-      searchInputRef.current?.focus()
-    }
-    window.addEventListener('keydown',onShortcut)
-    return()=>window.removeEventListener('keydown',onShortcut)
-  },[])
   useEffect(()=>{
     const sections=['top','lessons','completed','news','progress']
     const onScroll=()=>{
@@ -211,8 +198,8 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
   const levelFilters = ['Бүгд','Анхан','Дунд','Хүнд']
   const matchingLessons = useMemo(()=>lessons.filter(l => {
     const level=l.level==='Ахисан'?'Хүнд':l.level
-    return (filter==='Бүгд'||level===filter)&&(l.title+l.description+l.category+level).toLowerCase().includes(search.toLowerCase())
-  }),[lessons,search,filter])
+    return filter==='Бүгд'||level===filter
+  }),[lessons,filter])
   const filtered = useMemo(()=>matchingLessons.filter(l=>!l.completed&&!l.attempts),[matchingLessons])
   const completedLessons = useMemo(()=>matchingLessons.filter(l=>l.attempts>0||l.completed),[matchingLessons])
   const toggleComplete = async (lesson, answers) => {
@@ -226,15 +213,15 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     <aside className={menu?'open':''}><div className="side-top"><OrganizationLogo/><button className="side-close" aria-label="Цэс хаах" title="Цэс хаах" onClick={()=>setMenu(false)}><X/></button></div><nav>{onAdminReturn&&<button className="admin-return" onClick={onAdminReturn}><ShieldCheck/>Админ панел руу</button>}<a className={activeSection==='top'?'active':''} onClick={()=>setMenu(false)} href="#top"><LayoutGrid/>Нүүр</a><a className={activeSection==='lessons'?'active':''} href="#lessons" onClick={()=>setMenu(false)}><BookOpen/>Миний хичээлүүд <span>{lessons.length}</span></a><a className={activeSection==='completed'?'active':''} href="#completed" onClick={()=>setMenu(false)}><CheckCircle2/>Дуусгасан <span>{lessons.filter(l=>l.attempts>0||l.completed).length}</span></a><a className={activeSection==='news'?'active':''} href="#news" onClick={()=>setMenu(false)}><BookOpen/>Мэдээ мэдээлэл <span>{newsCount}</span></a><a className={activeSection==='progress'?'active':''} href="#progress" onClick={()=>{setActiveSection('progress');setMenu(false)}}><GraduationCap/>Явц</a></nav><div className="side-bottom"><div className="mini-shield"><ShieldCheck/><div><b>Сургалт</b><small>Аюулгүй суралц</small></div></div></div></aside>
     {menu&&<div className="aside-overlay" onClick={()=>setMenu(false)}/>} 
     <div className="main-area">
-      <header><button className="menu-btn" aria-label={sidebarHidden?'Цэс харуулах':'Цэс нуух'} title={sidebarHidden?'Цэс харуулах':'Цэс нуух'} onClick={()=>{if(window.matchMedia('(max-width:760px)').matches)setMenu(true);else setSidebarHidden(value=>!value)}}><Menu/></button><div className="search"><Search/><input ref={searchInputRef} placeholder="Хичээл хайх..." value={search} onChange={e=>setSearch(e.target.value)}/></div><div className="header-user"><Notifications request={request}/><div className="profile-wrap"><button type="button" className="profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Суралцагч</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordOpen(true);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/></div></header>
+      <header><button className="menu-btn" aria-label={sidebarHidden?'Цэс харуулах':'Цэс нуух'} title={sidebarHidden?'Цэс харуулах':'Цэс нуух'} onClick={()=>{if(window.matchMedia('(max-width:760px)').matches)setMenu(true);else setSidebarHidden(value=>!value)}}><Menu/></button><div className="header-user"><Notifications request={request}/><div className="profile-wrap"><button type="button" className="profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Суралцагч</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordOpen(true);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/></div></header>
       <div className="home-video-cover" aria-hidden="true"><video autoPlay muted loop playsInline preload="auto" tabIndex="-1"><source src="/media/phishing.mp4" type="video/mp4"/></video></div>
       <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}
         <section className="welcome"><div><div className="eyebrow"><Sparkles/> ТАНЫ СУРАЛЦАХ ОРОН ЗАЙ</div><h1>Сайн байна уу, {user.name.split(' ')[0]} 👋</h1><p>Өнөөдөр нэг алхам урагшилж, цахим хамгаалалтаа бэхжүүлцгээе.</p><button className="primary" onClick={()=>lessons[0]&&setSelected(lessons.find(l=>!l.completed)||lessons[0])}><Play size={18} fill="currentColor"/>Хичээлээ үргэлжлүүлэх</button></div><div className="orb"><div className="orbit"><ShieldCheck/></div><span className="dot d1"/><span className="dot d2"/><span className="dot d3"/></div></section>
         <section className="progress-row"><div className="progress-copy"><span className="progress-icon"><Zap/></span><div><b>Таны ахиц</b><small>{completeCount === lessons.length && lessons.length ? 'Бүх хичээлийг амжилттай дуусгалаа!' : 'Тууштай байгаарай, та сайн явж байна!'}</small></div></div><div className="progress-main"><div className="progress-label"><span>Нийт гүйцэтгэл</span><b>{lessons.length?Math.round(completeCount/lessons.length*100):0}%</b></div><div className="progress-track"><span style={{width:`${lessons.length?completeCount/lessons.length*100:0}%`}}/></div></div><div className="count"><b>{completeCount}</b><span>/ {lessons.length} хичээл</span></div></section>
-        <div className="section-head" id="lessons"><div><span>СОРИЛТОД БЭЛЭН ҮҮ?</span><h2>Онол · Дадлага ажил · Шалгалт</h2></div><div className="filter-mobile"><Search size={18}/><input placeholder="Хайх" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
+        <div className="section-head" id="lessons"><div><span>СОРИЛТОД БЭЛЭН ҮҮ?</span><h2>Онол · Дадлага ажил · Шалгалт</h2></div></div>
         <div className="filters level-filters">{levelFilters.map(level=><button key={level} className={filter===level?'active':''} onClick={()=>setFilter(level)}>{level}</button>)}</div>
         <LessonCarousel lessons={filtered} renderLesson={lessonCard}/>
-        {!filtered.length&&<div className="empty"><Search/><h3>Хичээл олдсонгүй</h3><p>Хайлтын үгээ өөрчлөөд үзээрэй.</p></div>}
+        {!filtered.length&&<div className="empty"><BookOpen/><h3>Хичээл олдсонгүй</h3><p>Сонгосон түвшний хичээл одоогоор алга байна.</p></div>}
         <section className="page-section" id="completed"><div className="section-head"><div><span>ТАНЫ ҮР ДҮН</span><h2>Дуусгасан болон шалгалт өгсөн хичээлүүд</h2></div></div><div className="lesson-grid">{completedLessons.map(lessonCard)}</div>{!completedLessons.length&&<div className="empty"><CheckCircle2/><h3>Шалгалт өгсөн хичээл алга байна</h3><p>Шалгалтаа дуусгахад оноо, үр дүн энд харагдана.</p></div>}</section>
         <section className="page-section"><News request={request} onCountChange={setNewsCount}/></section>
         <ProgressScope request={request}/>
