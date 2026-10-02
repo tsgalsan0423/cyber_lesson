@@ -6,3 +6,4 @@ server/*.db-wal
 .DS_Store
 .env
 server/private/
+sites/.generated-assets.js

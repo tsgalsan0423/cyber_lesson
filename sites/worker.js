@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import {canResetPassword,filterProgressUsers} from '../server/org-scope.js'
+import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
 const securityHeaders={
@@ -9,12 +10,23 @@ const securityHeaders={
 }
 const enc=new TextEncoder(),dec=new TextDecoder()
 const loginAttempts=new Map(),LOCK_MS=15*60*1000,LOGIN_LIMIT=5
+const decodedAssets=new Map()
 
 const response=(body,status=200,headers={})=>new Response(body,{status,headers:{...securityHeaders,...headers}})
 const json=(body,status=200,headers={})=>response(JSON.stringify(body),status,{...jsonHeaders,...headers})
 const clean=value=>String(value??'').trim()
 const parseJson=(value,fallback)=>{try{return JSON.parse(value||'')}catch{return fallback}}
 const fromBase64=value=>Uint8Array.from(atob(value),c=>c.charCodeAt(0))
+const assetMime=path=>path.endsWith('.html')?'text/html; charset=utf-8':path.endsWith('.js')?'text/javascript; charset=utf-8':path.endsWith('.css')?'text/css; charset=utf-8':path.endsWith('.svg')?'image/svg+xml':path.endsWith('.png')?'image/png':path.endsWith('.jpg')||path.endsWith('.jpeg')?'image/jpeg':path.endsWith('.webp')?'image/webp':path.endsWith('.mp4')?'video/mp4':'application/octet-stream'
+function staticAsset(request){
+  const url=new URL(request.url),key=STATIC_ASSETS[url.pathname]?url.pathname:'/index.html',encoded=STATIC_ASSETS[key]
+  if(!encoded)return json({message:'Файл олдсонгүй.'},404)
+  let bytes=decodedAssets.get(key);if(!bytes){bytes=fromBase64(encoded);decodedAssets.set(key,bytes)}
+  const headers={'content-type':assetMime(key),'cache-control':key==='/index.html'?'no-cache':'public, max-age=31536000, immutable','accept-ranges':'bytes',...securityHeaders}
+  const range=request.headers.get('range')?.match(/^bytes=(\d*)-(\d*)$/)
+  if(range){const start=range[1]?Number(range[1]):0,end=range[2]?Math.min(Number(range[2]),bytes.length-1):bytes.length-1;if(start> end||start>=bytes.length)return response(null,416,{'content-range':`bytes */${bytes.length}`});headers['content-range']=`bytes ${start}-${end}/${bytes.length}`;headers['content-length']=String(end-start+1);return response(bytes.slice(start,end+1),206,headers)}
+  headers['content-length']=String(bytes.length);return response(request.method==='HEAD'?null:bytes,200,headers)
+}
 const toBase64Url=value=>{
   const bytes=value instanceof Uint8Array?value:enc.encode(value)
   let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000))
@@ -242,10 +254,8 @@ export default{
     try{
       const url=new URL(request.url)
       if(url.pathname.startsWith('/api/'))return await handleApi(request,env)
-      let asset=await env.ASSETS.fetch(request)
-      if(asset.status===404&&request.method==='GET')asset=await env.ASSETS.fetch(new Request(new URL('/index.html',url.origin),request))
-      const headers=new Headers(asset.headers);for(const [key,value] of Object.entries(securityHeaders))headers.set(key,value)
-      return new Response(asset.body,{status:asset.status,statusText:asset.statusText,headers})
+      if(request.method==='GET'||request.method==='HEAD')return staticAsset(request)
+      return json({message:'Зам олдсонгүй.'},404)
     }catch(error){console.error(error);return json({message:error?.message||'Серверийн алдаа гарлаа.'},error?.status||500)}
   }
 }
