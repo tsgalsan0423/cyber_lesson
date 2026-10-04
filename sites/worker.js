@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import {canResetPassword,filterProgressUsers} from '../server/org-scope.js'
+import {mergeNewsWithCurated} from '../server/curated-international-news.js'
 import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
@@ -71,7 +72,7 @@ CREATE INDEX IF NOT EXISTS login_events_user ON login_events(user_id,created_at)
 CREATE TABLE IF NOT EXISTS lesson_views (user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,first_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,last_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,opens INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(user_id,lesson_id));
 CREATE TABLE IF NOT EXISTS analytics_metadata (started_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,actor_name TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT NOT NULL,author TEXT NOT NULL,category TEXT NOT NULL,filename TEXT,pdf BLOB,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,mime_type TEXT,external_url TEXT,news_type TEXT NOT NULL DEFAULT 'organization',source_name TEXT,ai_generated INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS news (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,body TEXT NOT NULL,author TEXT NOT NULL,category TEXT NOT NULL,filename TEXT,pdf BLOB,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,mime_type TEXT,external_url TEXT,news_type TEXT NOT NULL DEFAULT 'organization',source_name TEXT,ai_generated INTEGER NOT NULL DEFAULT 0,published_at TEXT);
 CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT,type TEXT NOT NULL,title TEXT NOT NULL,message TEXT NOT NULL,target_url TEXT,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE TABLE IF NOT EXISTS notification_reads (notification_id INTEGER NOT NULL,user_id INTEGER NOT NULL,read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(notification_id,user_id));
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
@@ -83,6 +84,7 @@ const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
   if(!columns.some(column=>column.name==='news_type'))await env.DB.exec("ALTER TABLE news ADD COLUMN news_type TEXT NOT NULL DEFAULT 'organization'")
   if(!columns.some(column=>column.name==='source_name'))await env.DB.exec('ALTER TABLE news ADD COLUMN source_name TEXT')
   if(!columns.some(column=>column.name==='ai_generated'))await env.DB.exec('ALTER TABLE news ADD COLUMN ai_generated INTEGER NOT NULL DEFAULT 0')
+  if(!columns.some(column=>column.name==='published_at'))await env.DB.exec('ALTER TABLE news ADD COLUMN published_at TEXT')
 })())
 const all=async(env,sql,values=[])=>(await env.DB.prepare(sql).bind(...values).all()).results||[]
 const get=async(env,sql,values=[])=>await env.DB.prepare(sql).bind(...values).first()
@@ -138,6 +140,7 @@ function normalizeLessonInput(body){
 async function notification(env,type,title,message,targetUrl){await run(env,'INSERT INTO notifications(type,title,message,target_url) VALUES(?,?,?,?)',[type,title.slice(0,160),message.slice(0,500),targetUrl])}
 
 const newsOutputSchema={type:'object',additionalProperties:false,properties:{items:{type:'array',items:{type:'object',additionalProperties:false,properties:{title:{type:'string'},summary:{type:'string'},source:{type:'string'},url:{type:'string'},date:{type:'string'}},required:['title','summary','source','url','date']}}},required:['items']}
+const internationalNewsInstructions='Та олон улсын кибер аюулгүй байдлын мэдээг монгол хэлээр редакторлодог. Сүүлийн 7 хоногийн бодит халдлага, алдагдсан систем, идэвхтэй ашиглагдаж буй эмзэг байдал, чухал засварын тухай 5 хүртэлх мэдээ сонго. Ерөнхий тайлан, бүтээгдэхүүний сурталчилгаанаас илүү тодорхой систем, нөлөө, үйл явдалтай мэдээг эрэмбэл. Байгууллагын албан мэдэгдэл, үйлдвэрлэгчийн аюулгүй байдлын зөвлөмж, CERT эсвэл анхны судалгааны шууд нийтлэлийг ашигла. Гарчиг нь сонирхол татахуйц боловч баримтаас хэтрэхгүй байна. Зөвхөн эмзэг байдал илэрсэн бол бодит халдлага болсон гэж бүү бич; алдагдал, хохирол батлагдаагүй бол тэгж тодорхой хэл. summary-д 2-3 өгүүлбэрээр юу болсон, ямар системд нөлөөлсөн, батлагдсан үр дүнг өөрийн үгээр хураангуйл. Давхардсан болон огноо нь тодорхойгүй мэдээг бүү оруул. url нь тухайн эх сурвалжийн HTTPS хаяг, date нь нийтэлсэн ISO 8601 огноо байна.'
 const extractResponseText=data=>(data.output||[]).flatMap(item=>item.content||[]).find(item=>item.type==='output_text')?.text||''
 async function refreshInternationalNews(env,{force=false}={}){
   if(!env.OPENAI_API_KEY)return{configured:false,added:0,message:'AI мэдээний OPENAI_API_KEY тохируулаагүй байна.'}
@@ -148,7 +151,7 @@ async function refreshInternationalNews(env,{force=false}={}){
   const lock=String((await get(env,"SELECT value FROM system_meta WHERE key='international_news_sync_lock'")||{}).value||'')
   if(lock!==lockToken)return{configured:true,skipped:true,added:0,message:'Мэдээ шинэчлэх ажил аль хэдийн эхэлсэн байна.'}
   try{
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify({model:env.OPENAI_NEWS_MODEL||'gpt-5-mini',store:false,tools:[{type:'web_search'}],text:{format:{type:'json_schema',name:'international_cyber_news',strict:true,schema:newsOutputSchema}},instructions:'Та олон улсын кибер аюулгүй байдлын мэдээг Монгол хэлээр редакторлодог. Нээлттэй вэб хайлтаар сүүлийн 7 хоногт дэлхийн хэмжээнд нийтлэгдсэн, бодит эх сурвалжтай 5 хүртэлх чухал мэдээ ол. Албан байгууллага, үндэсний CERT, судалгааны төв эсвэл танигдсан хэвлэл мэдээллийн шууд нийтлэлийг сонго. Хайсан мэдээлэл хуучирсан, давхардсан, эсвэл эх сурвалж тодорхой биш бол бүү оруул. Гарчгийг Монгол хэлээр товч орчуул; summary-д 2-3 өгүүлбэрээр баримтыг өөрийн үгээр хураангуйл. Зөвхөн эх сурвалжаар батлагдсан зүйл бич, зөвлөгөө эсвэл таамаг нэмж болохгүй. url нь тухайн нийтлэлийн HTTPS хаяг байна. Огноог ISO 8601 хэлбэрээр өг; тогтоох боломжгүй бол хоосон тэмдэгт өг.',input:'Хамгийн сүүлийн үеийн олон улсын кибер аюулгүй байдлын мэдээг хайж, Монгол хэл дээрх гарчиг ба хураангуйг буцаа. Нэг сэдвийг давтан бүү оруул.'})})
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{authorization:`Bearer ${env.OPENAI_API_KEY}`,'content-type':'application/json'},body:JSON.stringify({model:env.OPENAI_NEWS_MODEL||'gpt-5-mini',store:false,tools:[{type:'web_search'}],text:{format:{type:'json_schema',name:'international_cyber_news',strict:true,schema:newsOutputSchema}},instructions:internationalNewsInstructions,input:'Сүүлийн 7 хоногийн бодит кибер халдлага, эмзэг байдал болон хамгаалалтын засварын тухай эх сурвалжтай мэдээг монгол хэлээр хураангуйл. Нэг сэдвийг давтан бүү оруул.'})})
     if(!response.ok){const detail=await response.json().catch(()=>({}));throw Object.assign(new Error(detail.error?.message||'AI мэдээ хайх хүсэлт амжилтгүй.'),{status:502})}
     const data=await response.json(),text=extractResponseText(data);let parsed
     try{parsed=JSON.parse(text)}catch{throw Object.assign(new Error('AI мэдээний хариу уншигдахгүй байна.'),{status:502})}
@@ -159,7 +162,7 @@ async function refreshInternationalNews(env,{force=false}={}){
       if(!title||!body||!source||!externalUrl.startsWith('https://')||!citations.has(externalUrl)||!Number.isFinite(date))continue
       if(date<Date.now()-7*86400000||date>Date.now()+86400000)continue
       if(await get(env,"SELECT id FROM news WHERE news_type='international' AND external_url=?",[externalUrl]))continue
-      await run(env,"INSERT INTO news(title,body,author,category,external_url,news_type,source_name,ai_generated) VALUES(?,?,?,'Кибер аюулгүй байдал',?,'international',?,1)",[title,body,source,externalUrl,source]);added++
+      await run(env,"INSERT INTO news(title,body,author,category,external_url,news_type,source_name,ai_generated,published_at) VALUES(?,?,?,'Кибер аюулгүй байдал',?,'international',?,1,?)",[title,body,source,externalUrl,source,new Date(date).toISOString().slice(0,10)]);added++
     }
     await run(env,"INSERT INTO system_meta(key,value) VALUES('international_news_last_sync',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",[String(now)])
     await run(env,"UPDATE system_meta SET value='0' WHERE key='international_news_sync_lock' AND value=?",[lockToken])
@@ -256,7 +259,7 @@ async function handleApi(request,env,ctx){
   if(method==='POST'&&path==='/api/notifications/read-all'){const items=await all(env,'SELECT id FROM notifications WHERE created_at>=(SELECT created_at FROM users WHERE id=?)',[user.id]);if(items.length)await env.DB.batch(items.map(item=>env.DB.prepare('INSERT INTO notification_reads(notification_id,user_id) VALUES(?,?) ON CONFLICT(notification_id,user_id) DO NOTHING').bind(item.id,user.id)));return json({ok:true})}
   if(method==='GET'&&path==='/api/news'){
     if(env.OPENAI_API_KEY&&user.role!=='admin'){const refresh=refreshInternationalNews(env).catch(error=>console.error('international news refresh failed',error.message));if(ctx?.waitUntil)ctx.waitUntil(refresh)}
-    return json(await all(env,'SELECT id,title,body,author,category,filename,mime_type,external_url,news_type,source_name,ai_generated,length(pdf) size,created_at,updated_at FROM news ORDER BY id DESC'))
+    return json(mergeNewsWithCurated(await all(env,'SELECT id,title,body,author,category,filename,mime_type,external_url,news_type,source_name,ai_generated,published_at,length(pdf) size,created_at,updated_at FROM news ORDER BY id DESC')))
   }
   match=idMatch(/^\/api\/news\/(\d+)\/(file|pdf)$/)
   if(method==='GET'&&match){const item=await get(env,'SELECT filename,mime_type,pdf FROM news WHERE id=?',[match[1]]);if(!item?.pdf)return json({message:'Файл олдсонгүй.'},404);const download=match[2]==='pdf'||url.searchParams.get('download')==='1';return response(item.pdf,200,{'content-type':item.mime_type||'application/pdf','cache-control':'private, no-store','content-disposition':`${download?'attachment':'inline'}; filename*=UTF-8''${encodeURIComponent(item.filename||'file')}`})}

@@ -15,18 +15,11 @@ import './home-media.css'
 import './sidebar-toggle.css'
 import {randomQuiz,originalAnswers} from './quizOrder.js'
 import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js'
+import {request} from './api.js'
 
-const API = '/api'
 const tokenKey = 'securelab-token'
 const userKey = 'securelab-user'
 const requireInitialPasswordChange = import.meta.env.VITE_REQUIRE_INITIAL_PASSWORD_CHANGE !== 'false'
-
-async function request(path, options = {}) {
-  const res = await fetch(`${API}${path}`, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}), ...(localStorage.getItem(tokenKey) ? { Authorization: `Bearer ${localStorage.getItem(tokenKey)}` } : {}) } })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.message || 'Алдаа гарлаа')
-  return data
-}
 
 function Brand({compact=false}) {
   return <OrganizationLogo compact={compact}/>
@@ -62,6 +55,7 @@ function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
     e.preventDefault(); setLoading(true); setError('')
     try {
       const data=await request('/auth/login', { method: 'POST', body: JSON.stringify(form) })
+      if(!data?.user||typeof data.token!=='string'||!data.token) throw new Error('Нэвтрэх мэдээлэл серверээс бүрэн ирсэнгүй. Дахин оролдоно уу.')
       if(adminOnly&&data.user.role!=='admin') throw new Error('Энэ хуудас зөвхөн админд зориулагдсан. Хэрэглэгчийн нэвтрэх хуудсыг ашиглана уу.')
       if(!adminOnly&&data.user.role==='admin') throw new Error('Админ хэрэглэгч /admin/login хаягаар нэвтэрнэ үү.')
       onAuth(data)
@@ -244,7 +238,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   const [showUserForm,setShowUserForm]=useState(false), [userForm,setUserForm]=useState(emptyUser), [showUserPassword,setShowUserPassword]=useState(false), [previewLesson,setPreviewLesson]=useState(null)
   const [passwordUser,setPasswordUser]=useState(null),[notice,setNotice]=useState('')
   const [userDetail,setUserDetail]=useState(null)
-  const [userSearch,setUserSearch]=useState(''),[userPage,setUserPage]=useState(1)
+  const [userSearch,setUserSearch]=useState(''),[userDepartment,setUserDepartment]=useState('all'),[userPage,setUserPage]=useState(1)
   const load=()=>request('/admin/overview').then(setData).catch(e=>setError(e.message))
   useEffect(()=>{load()},[])
   useEffect(()=>{request('/news').then(items=>setNewsCount(items.length)).catch(()=>{})},[])
@@ -277,11 +271,12 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
   const filteredUsers=useMemo(()=>{
     const terms=userSearch.trim().toLocaleLowerCase('mn-MN').split(/\s+/).filter(Boolean)
     return data.users.filter(u=>{
+      const inDepartment=userDepartment==='all'||String(u.department||'').replace(/\s+/g,' ').trim().toLocaleLowerCase('mn-MN')===userDepartment.toLocaleLowerCase('mn-MN')
       const searchable=[u.surname,u.name,u.email,u.phone,u.department,u.position,u.role==='admin'?'админ':'суралцагч'].filter(Boolean).join(' ').toLocaleLowerCase('mn-MN')
-      return !terms.length||terms.every(term=>searchable.includes(term))
+      return inDepartment&&(!terms.length||terms.every(term=>searchable.includes(term)))
     }).sort(compareStaff)
-  },[data.users,userSearch])
-  const departments=useMemo(()=>[...new Set([...activeDepartments,...data.users.map(u=>u.department?.trim()).filter(Boolean)])].sort(compareDepartments),[data.users])
+  },[data.users,userSearch,userDepartment])
+  const departments=useMemo(()=>[...new Set([...activeDepartments,...data.users.map(u=>String(u.department||'').replace(/\s+/g,' ').trim()).filter(Boolean)])].sort(compareDepartments),[data.users])
   const usersPerPage=10
   const userPageCount=Math.max(1,Math.ceil(filteredUsers.length/usersPerPage))
   useEffect(()=>setUserPage(page=>Math.min(page,userPageCount)),[userPageCount])
@@ -293,7 +288,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
         {notice&&<p className="success-notice" role="status">{notice}</p>}<AdminAnalytics request={request}/>
         {error&&<div className="error">{error}</div>}
         <section className="admin-section" id="admin-lessons"><div className="admin-title"><div><span>КОНТЕНТ</span><h2>Интерактив хичээлүүд</h2></div><button onClick={()=>openForm()}><Plus/> Нэмэх</button></div><div className="admin-table-wrap"><table><thead><tr><th>Хичээл</th><th>Ангилал</th><th>Түвшин</th><th>Хугацаа</th><th>Үйлдэл</th></tr></thead><tbody>{data.lessons.map(l=><tr key={l.id}><td><i style={{background:l.accent}}><Zap/></i><b>{l.title}</b></td><td>{l.category}</td><td><span className="table-pill">{l.level}</span></td><td>{l.duration}</td><td><button aria-label="Хичээл үзэх" title="Хичээл үзэх" onClick={()=>preview(l)}><Eye/></button><button aria-label="Засах" title="Засах" onClick={()=>openForm(l)}><Edit3/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>remove(l)}><Trash2/></button></td></tr>)}</tbody></table></div></section>
-        <section className="admin-section" id="admin-users"><div className="admin-title"><div><span>БҮРЭН УДИРДЛАГА</span><h2>Хэрэглэгчид</h2></div><button onClick={()=>{setUserForm(emptyUser);setShowUserPassword(false);setError('');setShowUserForm(true)}}><Plus/> Хэрэглэгч үүсгэх</button></div><div className="user-table-tools"><label className="admin-user-search"><Search size={18}/><input type="search" value={userSearch} onChange={e=>{setUserSearch(e.target.value);setUserPage(1)}} placeholder="Нэр, и-мэйл, албан тушаал, нэгжээр хайх..." aria-label="Хэрэглэгч хайх"/>{userSearch&&<button type="button" title="Хайлтыг цэвэрлэх" aria-label="Хайлтыг цэвэрлэх" onClick={()=>{setUserSearch('');setUserPage(1)}}><X size={16}/></button>}</label><span>{userSearch?`${filteredUsers.length} хэрэглэгч олдлоо`:`Нийт ${data.users.length} хэрэглэгч`}</span></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Нэгж / Албан тушаал</th><th>И-мэйл</th><th>Эрх</th><th>Удирдах</th></tr></thead><tbody>{pagedUsers.map(u=><tr key={u.id}><td><div className="user-cell"><span>{u.name[0]}</span><b>{u.surname?u.surname+' ':''}{u.name}</b></div></td><td>{u.department||'—'}<br/><small>{u.position||'—'}</small></td><td><b className="username-text">{u.email}</b>{u.phone&&<><br/><small>{u.phone}</small></>}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td><td className="user-actions"><button className="user-detail-button" title="Дэлгэрэнгүй мэдээлэл" aria-label={`${u.name}: дэлгэрэнгүй`} onClick={()=>openUserDetail(u)}><Eye/><span>Дэлгэрэнгүй</span></button><button title="Нууц үг шинэчлэх" aria-label={`${u.name}: нууц үг шинэчлэх`} onClick={()=>{setPasswordUser(u);setNotice('')}}><LockKeyhole/></button>{u.id!==user.id&&<><button aria-label="Эрх солих" title="Эрх солих" onClick={()=>userAction(u.id,'role',{role:u.role==='admin'?'student':'admin'})}><Shield/></button><button aria-label="Явц тэглэх" title="Явц тэглэх" onClick={()=>userAction(u.id,'reset-progress')}><Zap/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>deleteUser(u)}><Trash2/></button></>}</td></tr>)}{!pagedUsers.length&&<tr><td colSpan="5"><div className="user-search-empty"><Search size={22}/><b>Хэрэглэгч олдсонгүй</b><span>Хайлтын үгээ өөрчилж дахин оролдоно уу.</span></div></td></tr>}</tbody></table></div>{filteredUsers.length>usersPerPage&&<nav className="user-pagination" aria-label="Хэрэглэгчийн хуудас"><button type="button" disabled={userPage===1} onClick={()=>setUserPage(page=>page-1)} aria-label="Өмнөх хуудас">‹</button>{Array.from({length:userPageCount},(_,index)=>index+1).map(page=><button type="button" key={page} className={page===userPage?'active':''} aria-current={page===userPage?'page':undefined} onClick={()=>setUserPage(page)}>{page}</button>)}<button type="button" disabled={userPage===userPageCount} onClick={()=>setUserPage(page=>page+1)} aria-label="Дараагийн хуудас">›</button></nav>}<p className="user-page-summary">{filteredUsers.length?`${(userPage-1)*usersPerPage+1}–${Math.min(userPage*usersPerPage,filteredUsers.length)} / ${filteredUsers.length}`:'0 хэрэглэгч'}</p></section>
+        <section className="admin-section" id="admin-users"><div className="admin-title"><div><span>БҮРЭН УДИРДЛАГА</span><h2>Хэрэглэгчид</h2></div><button onClick={()=>{setUserForm(emptyUser);setShowUserPassword(false);setError('');setShowUserForm(true)}}><Plus/> Хэрэглэгч үүсгэх</button></div><div className="user-table-tools"><div className="user-table-filters"><label className="admin-user-search"><Search size={18}/><input type="search" value={userSearch} onChange={e=>{setUserSearch(e.target.value);setUserPage(1)}} placeholder="Нэр, и-мэйл, албан тушаалаар хайх..." aria-label="Хэрэглэгч хайх"/>{userSearch&&<button type="button" title="Хайлтыг цэвэрлэх" aria-label="Хайлтыг цэвэрлэх" onClick={()=>{setUserSearch('');setUserPage(1)}}><X size={16}/></button>}</label><label className="admin-department-filter"><span>Нэгж</span><select value={userDepartment} onChange={e=>{setUserDepartment(e.target.value);setUserPage(1)}} aria-label="Газар, хэлтсээр харах"><option value="all">Бүх газар, хэлтэс</option>{departments.map(department=><option key={department} value={department}>{department}</option>)}</select></label></div><span>{userSearch||userDepartment!=='all'?`${filteredUsers.length} хэрэглэгч`:`Нийт ${data.users.length} хэрэглэгч`}</span></div>{userDepartment!=='all'&&<div className="user-filter-summary" aria-live="polite"><div><b>{userDepartment}</b><span>Тус нэгжид бүртгэлтэй хэрэглэгчид</span></div><strong>{filteredUsers.length}</strong><button type="button" onClick={()=>{setUserDepartment('all');setUserPage(1)}}><X size={15}/> Бүх нэгж</button></div>}<div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Нэгж / Албан тушаал</th><th>И-мэйл</th><th>Эрх</th><th>Удирдах</th></tr></thead><tbody>{pagedUsers.map(u=><tr key={u.id}><td><div className="user-cell"><span>{u.name[0]}</span><b>{u.surname?u.surname+' ':''}{u.name}</b></div></td><td>{u.department||'—'}<br/><small>{u.position||'—'}</small></td><td><b className="username-text">{u.email}</b>{u.phone&&<><br/><small>{u.phone}</small></>}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td><td className="user-actions"><button className="user-detail-button" title="Дэлгэрэнгүй мэдээлэл" aria-label={`${u.name}: дэлгэрэнгүй`} onClick={()=>openUserDetail(u)}><Eye/><span>Дэлгэрэнгүй</span></button><button title="Нууц үг шинэчлэх" aria-label={`${u.name}: нууц үг шинэчлэх`} onClick={()=>{setPasswordUser(u);setNotice('')}}><LockKeyhole/></button>{u.id!==user.id&&<><button aria-label="Эрх солих" title="Эрх солих" onClick={()=>userAction(u.id,'role',{role:u.role==='admin'?'student':'admin'})}><Shield/></button><button aria-label="Явц тэглэх" title="Явц тэглэх" onClick={()=>userAction(u.id,'reset-progress')}><Zap/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>deleteUser(u)}><Trash2/></button></>}</td></tr>)}{!pagedUsers.length&&<tr><td colSpan="5"><div className="user-search-empty"><Search size={22}/><b>Хэрэглэгч олдсонгүй</b><span>{userDepartment!=='all'?'Энэ нэгжид тохирох хэрэглэгч одоогоор алга.':'Хайлтын үгээ өөрчилж дахин оролдоно уу.'}</span></div></td></tr>}</tbody></table></div>{filteredUsers.length>usersPerPage&&<nav className="user-pagination" aria-label="Хэрэглэгчийн хуудас"><button type="button" disabled={userPage===1} onClick={()=>setUserPage(page=>page-1)} aria-label="Өмнөх хуудас">‹</button>{Array.from({length:userPageCount},(_,index)=>index+1).map(page=><button type="button" key={page} className={page===userPage?'active':''} aria-current={page===userPage?'page':undefined} onClick={()=>setUserPage(page)}>{page}</button>)}<button type="button" disabled={userPage===userPageCount} onClick={()=>setUserPage(page=>page+1)} aria-label="Дараагийн хуудас">›</button></nav>}<p className="user-page-summary">{filteredUsers.length?`${(userPage-1)*usersPerPage+1}–${Math.min(userPage*usersPerPage,filteredUsers.length)} / ${filteredUsers.length}`:'0 хэрэглэгч'}</p></section>
         <News request={request} admin onCountChange={setNewsCount}/>
       </main>
     </div>

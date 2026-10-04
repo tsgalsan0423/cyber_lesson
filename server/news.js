@@ -1,4 +1,5 @@
 import {createNotification} from './notifications.js'
+import {mergeNewsWithCurated} from './curated-international-news.js'
 
 export async function installNews(app, db, auth, adminOnly) {
   if (db.dialect === 'postgres') await db.exec(`CREATE TABLE IF NOT EXISTS news (
@@ -13,15 +14,19 @@ export async function installNews(app, db, auth, adminOnly) {
     pdf BLOB, created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   )`)
-  if(db.dialect==='postgres') await db.exec('ALTER TABLE news ADD COLUMN IF NOT EXISTS mime_type TEXT; ALTER TABLE news ADD COLUMN IF NOT EXISTS external_url TEXT')
+  if(db.dialect==='postgres') await db.exec("ALTER TABLE news ADD COLUMN IF NOT EXISTS mime_type TEXT; ALTER TABLE news ADD COLUMN IF NOT EXISTS external_url TEXT; ALTER TABLE news ADD COLUMN IF NOT EXISTS news_type TEXT NOT NULL DEFAULT 'organization'; ALTER TABLE news ADD COLUMN IF NOT EXISTS source_name TEXT; ALTER TABLE news ADD COLUMN IF NOT EXISTS ai_generated INTEGER NOT NULL DEFAULT 0; ALTER TABLE news ADD COLUMN IF NOT EXISTS published_at TEXT")
   else {
     const columns=(await db.all('PRAGMA table_info(news)')).map(c=>c.name)
     if(!columns.includes('mime_type'))await db.exec('ALTER TABLE news ADD COLUMN mime_type TEXT')
     if(!columns.includes('external_url'))await db.exec('ALTER TABLE news ADD COLUMN external_url TEXT')
+    if(!columns.includes('news_type'))await db.exec("ALTER TABLE news ADD COLUMN news_type TEXT NOT NULL DEFAULT 'organization'")
+    if(!columns.includes('source_name'))await db.exec('ALTER TABLE news ADD COLUMN source_name TEXT')
+    if(!columns.includes('ai_generated'))await db.exec('ALTER TABLE news ADD COLUMN ai_generated INTEGER NOT NULL DEFAULT 0')
+    if(!columns.includes('published_at'))await db.exec('ALTER TABLE news ADD COLUMN published_at TEXT')
   }
   await db.run("UPDATE news SET mime_type='application/pdf' WHERE filename IS NOT NULL AND mime_type IS NULL")
   const sizeSql = db.dialect === 'postgres' ? 'octet_length(pdf)' : 'length(pdf)'
-  app.get('/api/news',auth,async(_,res)=>res.json(await db.all(`SELECT id,title,body,author,category,filename,mime_type,external_url,${sizeSql} size,created_at,updated_at FROM news ORDER BY id DESC`)))
+  app.get('/api/news',auth,async(_,res)=>res.json(mergeNewsWithCurated(await db.all(`SELECT id,title,body,author,category,filename,mime_type,external_url,news_type,source_name,ai_generated,published_at,${sizeSql} size,created_at,updated_at FROM news ORDER BY id DESC`))))
   const serveFile=async(req,res)=>{
     const item=await db.get('SELECT filename,mime_type,pdf FROM news WHERE id=?', [req.params.id])
     if(!item?.pdf) return res.status(404).json({message:'Файл олдсонгүй.'})
@@ -45,13 +50,15 @@ export async function installNews(app, db, auth, adminOnly) {
       if(bytes.length>8*1024*1024||!detected) return res.status(400).json({message:'Хүчинтэй PDF, PNG, JPG эсвэл WEBP файл сонгоно уу (8 MB хүртэл).'})
       pdf=bytes;mimeType=detected;filename=file.name.replace(/[\r\n/\\]/g,'_').slice(0,180)
     }
-    const values=[title.trim(),body.trim(),author.trim(),category.trim(),filename,pdf,mimeType,externalUrl||null]
+    const newsType=req.body?.news_type==='international'?'international':'organization'
+    const sourceName=newsType==='international'?String(req.body?.source_name||author).trim():null
+    const values=[title.trim(),body.trim(),author.trim(),category.trim(),filename,pdf,mimeType,externalUrl||null,newsType,sourceName]
     if(existing){
-      await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
+      await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,news_type=?,source_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
       await createNotification(db,{type:'news_updated',title:'Мэдээ шинэчлэгдлээ',message:title.trim(),targetUrl:'#news'})
     }
     else {
-      const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url) VALUES (?,?,?,?,?,?,?,?) RETURNING id', values)
+      const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url,news_type,source_name) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id', values)
       await createNotification(db,{type:'news_new',title:'Шинэ мэдээ нийтлэгдлээ',message:title.trim(),targetUrl:'#news'})
       return res.status(201).json({id:Number(result.lastInsertRowid)})
     }
