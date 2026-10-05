@@ -11,6 +11,16 @@ const STATUS_MESSAGES = {
   504: 'Серверийн хариу удааширлаа. Дахин оролдоно уу.'
 }
 
+const deviceKey = 'securelab-device-id'
+function deviceId() {
+  let value = globalThis.localStorage?.getItem?.(deviceKey) || ''
+  if (!/^[a-z0-9_-]{16,80}$/i.test(value)) {
+    value = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`
+    globalThis.localStorage?.setItem?.(deviceKey, value)
+  }
+  return value
+}
+
 function statusMessage(status) {
   return STATUS_MESSAGES[status] || (status >= 500
     ? 'Серверт алдаа гарлаа. Түр хүлээгээд дахин оролдоно уу.'
@@ -25,6 +35,7 @@ export async function request(path, options = {}) {
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        'X-Device-ID': deviceId(),
         ...(options.headers || {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {})
       }

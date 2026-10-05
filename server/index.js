@@ -21,6 +21,14 @@ const PORT = process.env.PORT || 3001
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-in-production'
 const PRODUCTION = process.env.NODE_ENV === 'production'
 if(PRODUCTION&&(JWT_SECRET==='dev-secret-change-in-production'||Buffer.byteLength(JWT_SECRET)<32)) throw new Error('Production орчинд 32+ тэмдэгттэй JWT_SECRET тохируулна уу.')
+if(PRODUCTION)app.set('trust proxy',1)
+
+const clientIp=req=>String(req.headers['cf-connecting-ip']||req.ip||req.socket?.remoteAddress||'unknown').split(',')[0].trim().slice(0,64)
+const clientDeviceId=req=>{
+  const value=String(req.headers['x-device-id']||'').trim()
+  return /^[a-z0-9_-]{16,80}$/i.test(value)?value:'unknown'
+}
+const clientUserAgent=req=>String(req.headers['user-agent']||'unknown').slice(0,500)
 
 app.disable('x-powered-by')
 app.use((req,res,next)=>{
@@ -259,15 +267,28 @@ const passwordError=password=>{
   if(!/[a-z]/.test(password)||!/[A-Z]/.test(password)||!/[0-9]/.test(password)||!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?`~]/.test(password))return 'Нууц үг том, жижиг үсэг, тоо, тусгай тэмдэгт агуулна.'
   return ''
 }
-const loginAttempts=new Map(),ipLoginAttempts=new Map(),LOGIN_LIMIT=5,IP_LOGIN_LIMIT=30, LOCK_MS=15*60*1000
-const loginKey=(req,identifier)=>`${req.ip}|${identifier.toLowerCase().slice(0,160)}`
+const loginAttempts=new Map(),loginRateLimits=new Map(),LOGIN_LIMIT=5,DEVICE_LOGIN_LIMIT=30,SHARED_IP_LOGIN_LIMIT=300,RATE_WINDOW_MS=60*1000,LOCK_MS=15*60*1000
+const loginKey=(req,identifier)=>`${clientIp(req)}|${identifier.toLowerCase().slice(0,160)}`
 const dummyPasswordHash=bcrypt.hashSync('Dummy-Password-Only-9!',12)
 const pruneLoginAttempts=()=>{
   const expiry=Date.now()-LOCK_MS
-  for(const store of [loginAttempts,ipLoginAttempts]){
+  for(const store of [loginAttempts,loginRateLimits]){
     for(const [key,value] of store)if((value.updatedAt||0)<expiry&&(!value.lockedUntil||value.lockedUntil<Date.now()))store.delete(key)
     while(store.size>10000)store.delete(store.keys().next().value)
   }
+}
+const consumeLoginRate=(key,limit)=>{
+  const now=Date.now(),previous=loginRateLimits.get(key)
+  if(previous?.lockedUntil>now)return previous.lockedUntil
+  const current=!previous||now-previous.windowStarted>=RATE_WINDOW_MS?{count:0,windowStarted:now,lockedUntil:0}:previous
+  current.count+=1;current.updatedAt=now
+  if(current.count>limit)current.lockedUntil=now+LOCK_MS
+  loginRateLimits.set(key,current)
+  return current.lockedUntil>now?current.lockedUntil:0
+}
+const loginRateLimit=req=>{
+  const ip=clientIp(req),device=clientDeviceId(req)
+  return Math.max(consumeLoginRate(`device:${ip}:${device}`,DEVICE_LOGIN_LIMIT),consumeLoginRate(`ip:${ip}`,SHARED_IP_LOGIN_LIMIT))
 }
 
 async function auth(req, res, next) {
@@ -297,8 +318,13 @@ app.post('/api/auth/login', async (req, res) => {
   const identifier = String(body.identifier||body.email||'').trim().slice(0,160)
   const password=typeof body.password==='string'&&Buffer.byteLength(body.password)<=72?body.password:''
   pruneLoginAttempts()
-  const key=loginKey(req,identifier),ipKey=req.ip,record=loginAttempts.get(key),ipRecord=ipLoginAttempts.get(ipKey)
-  const lockedUntil=Math.max(record?.lockedUntil||0,ipRecord?.lockedUntil||0)
+  const rateLockedUntil=loginRateLimit(req)
+  if(rateLockedUntil>Date.now()){
+    const seconds=Math.ceil((rateLockedUntil-Date.now())/1000);res.set('Retry-After',String(seconds))
+    return res.status(429).json({message:`Энэ төхөөрөмжөөс 1 минутанд хэт олон нэвтрэх оролдлого хийсэн байна. ${Math.ceil(seconds/60)} минутын дараа дахин оролдоно уу.`})
+  }
+  const key=loginKey(req,identifier),record=loginAttempts.get(key)
+  const lockedUntil=record?.lockedUntil||0
   if(lockedUntil>Date.now()){
     const seconds=Math.ceil((lockedUntil-Date.now())/1000);res.set('Retry-After',String(seconds))
     return res.status(429).json({message:`Олон удаа буруу оролдсон байна. ${Math.ceil(seconds/60)} минутын дараа дахин оролдоно уу.`})
@@ -306,17 +332,17 @@ app.post('/api/auth/login', async (req, res) => {
   const user = await db.get('SELECT * FROM users WHERE lower(email) = lower(?) OR lower(username) = lower(?)', [identifier, identifier])
   const valid=await bcrypt.compare(password,user?.password_hash||dummyPasswordHash)
   if (!user || !valid){
-    const now=Date.now(),failures=(record?.failures||0)+1,ipFailures=(ipRecord?.failures||0)+1
-    const accountLock=failures>=LOGIN_LIMIT?now+LOCK_MS:0,ipLock=ipFailures>=IP_LOGIN_LIMIT?now+LOCK_MS:0
-    loginAttempts.set(key,{failures,lockedUntil:accountLock,updatedAt:now});ipLoginAttempts.set(ipKey,{failures:ipFailures,lockedUntil:ipLock,updatedAt:now})
-    if(accountLock||ipLock){res.set('Retry-After',String(LOCK_MS/1000));return res.status(429).json({message:'Олон удаа буруу оролдсон байна. 15 минутын дараа дахин оролдоно уу.'})}
+    const now=Date.now(),failures=(record?.failures||0)+1
+    const accountLock=failures>=LOGIN_LIMIT?now+LOCK_MS:0
+    loginAttempts.set(key,{failures,lockedUntil:accountLock,updatedAt:now})
+    if(accountLock){res.set('Retry-After',String(LOCK_MS/1000));return res.status(429).json({message:'Олон удаа буруу оролдсон байна. 15 минутын дараа дахин оролдоно уу.'})}
     return res.status(401).json({ message: 'Нэвтрэх нэр эсвэл нууц үг буруу байна.' })
   }
-  loginAttempts.delete(key);ipLoginAttempts.delete(ipKey)
+  loginAttempts.delete(key)
   if(bcrypt.getRounds(user.password_hash)<12){user.password_hash=await bcrypt.hash(password,12);await db.run('UPDATE users SET password_hash=? WHERE id=?',[user.password_hash,user.id])}
   const safe = { id:user.id,name:user.name,email:user.email,username:user.username,role:user.role,session_version:user.session_version,
     surname:user.surname||'',department:user.department||'',position:user.position||'',phone:user.phone||'',must_change_password:!!user.must_change_password }
-  await db.run('INSERT INTO login_events (user_id) VALUES (?)', [user.id])
+  await db.run('INSERT INTO login_events (user_id,ip_address,device_id,user_agent) VALUES (?,?,?,?)', [user.id,clientIp(req),clientDeviceId(req),clientUserAgent(req)])
   res.json({ user: safe, token: jwt.sign({id:user.id,session_version:user.session_version}, JWT_SECRET, {algorithm:'HS256',issuer:'securelab',audience:'securelab-web',expiresIn:'8h'}) })
 })
 
@@ -333,6 +359,16 @@ if (db.dialect === 'postgres') {
 }
 await installAudit(app, db, auth, adminOnly)
 await installAnalytics(app, db, auth, adminOnly)
+for(const [table,columns] of Object.entries({
+  login_events:{ip_address:'TEXT',device_id:'TEXT',user_agent:'TEXT'},
+  exam_attempts:{ip_address:'TEXT',device_id:'TEXT'}
+})){
+  if(db.dialect==='postgres')for(const [column,type] of Object.entries(columns))await db.exec(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS ${column} ${type}`)
+  else{
+    const existing=(await db.all(`PRAGMA table_info(${table})`)).map(column=>column.name)
+    for(const [column,type] of Object.entries(columns))if(!existing.includes(column))await db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
+  }
+}
 await installNotifications(app, db, auth)
 await installNews(app, db, auth, adminOnly)
 app.post('/api/auth/password',auth,async(req,res)=>{
@@ -392,6 +428,7 @@ app.get('/api/admin/users/:id/details',auth,adminOnly,async(req,res)=>{
   const account=await db.get('SELECT id,name,surname,username,email,role,created_at,department,position,phone FROM users WHERE id=?',[req.params.id])
   if(!account)return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
   const login=await db.get('SELECT max(created_at) last_login,count(*) login_count FROM login_events WHERE user_id=?',[account.id])
+  const lastConnection=await db.get('SELECT ip_address,device_id,user_agent FROM login_events WHERE user_id=? ORDER BY id DESC LIMIT 1',[account.id])
   const lastLesson=await db.get(`SELECT l.title,v.last_viewed_at FROM lesson_views v JOIN lessons l ON l.id=v.lesson_id
     WHERE v.user_id=? ORDER BY v.last_viewed_at DESC LIMIT 1`,[account.id])
   const courses=await db.all(`SELECT l.id,l.title,
@@ -404,7 +441,7 @@ app.get('/api/admin/users/:id/details',auth,adminOnly,async(req,res)=>{
     FROM lessons l ORDER BY l.id`,[account.id,account.id,account.id,account.id,account.id,account.id])
   const normalized=courses.map(course=>({...course,opens:Number(course.opens)||0,attempts:Number(course.attempts)||0,completed:Number(course.completed)>0}))
   const scores=normalized.filter(course=>course.last_score!==null).map(course=>Number(course.last_score))
-  res.json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,
+  res.json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,last_ip:lastConnection?.ip_address||null,last_device_id:lastConnection?.device_id||null,last_user_agent:lastConnection?.user_agent||null,
     last_lesson:lastLesson||null,summary:{viewed:normalized.filter(course=>course.opens>0).length,tested:normalized.filter(course=>course.attempts>0).length,
       completed:normalized.filter(course=>course.completed).length,average:scores.length?Math.round(scores.reduce((sum,score)=>sum+score,0)/scores.length):null},courses:normalized})
 })
@@ -416,13 +453,17 @@ app.get('/api/lessons', auth, async (req, res) => {
 app.post('/api/lessons/:id/progress', auth, async (req, res) => {
   const lesson = await db.get('SELECT quiz_json FROM lessons WHERE id=?', [req.params.id])
   if (!lesson) return res.status(404).json({ message: 'Хичээл олдсонгүй.' })
+  if (req.body?.integrity_failure === true) {
+    await db.run('INSERT INTO exam_attempts (user_id, lesson_id, score, passed, ip_address, device_id) VALUES (?, ?, 0, 0, ?, ?)', [req.user.id, req.params.id,clientIp(req),clientDeviceId(req)])
+    return res.json({score:0,completed:false,review:[]})
+  }
   const parsed = parseJson(lesson.quiz_json, [])
   const quiz = Array.isArray(parsed) ? parsed : [parsed]
   const answers = req.body?.answers
   if (!quiz.length || !Array.isArray(answers) || answers.length !== quiz.length || answers.some((a,i) => !Number.isInteger(a) || a < 0 || a >= quiz[i].options.length)) return res.status(400).json({message:'Бүх асуултад хариулна уу.'})
   const score = Math.round(quiz.filter((q,i)=>q.answer===answers[i]).length / quiz.length * 100)
   const completed = score >= 50
-  await db.run('INSERT INTO exam_attempts (user_id, lesson_id, score, passed) VALUES (?, ?, ?, ?)', [req.user.id, req.params.id, score, completed ? 1 : 0])
+  await db.run('INSERT INTO exam_attempts (user_id, lesson_id, score, passed, ip_address, device_id) VALUES (?, ?, ?, ?, ?, ?)', [req.user.id, req.params.id, score, completed ? 1 : 0,clientIp(req),clientDeviceId(req)])
   if (completed) await db.run(`INSERT INTO progress (user_id, lesson_id, completed) VALUES (?, ?, 1) ON CONFLICT(user_id, lesson_id) DO UPDATE SET completed=1, updated_at=CURRENT_TIMESTAMP`, [req.user.id, req.params.id])
   res.json({ score, completed, review:quiz.map(q=>({answer:q.answer,explain:q.explain})) })
 })

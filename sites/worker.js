@@ -10,7 +10,7 @@ const securityHeaders={
   'content-security-policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 }
 const enc=new TextEncoder(),dec=new TextDecoder()
-const loginAttempts=new Map(),LOCK_MS=15*60*1000,LOGIN_LIMIT=5
+const loginAttempts=new Map(),LOCK_MS=15*60*1000,LOGIN_LIMIT=5,DEVICE_LOGIN_LIMIT=30,SHARED_IP_LOGIN_LIMIT=300,RATE_WINDOW_MS=60*1000
 const decodedAssets=new Map()
 
 const response=(body,status=200,headers={})=>new Response(body,{status,headers:{...securityHeaders,...headers}})
@@ -66,9 +66,10 @@ CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON users(username) WHERE username IS NOT NULL;
 CREATE TABLE IF NOT EXISTS lessons (id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,description TEXT NOT NULL,duration TEXT NOT NULL,level TEXT NOT NULL,category TEXT NOT NULL,video_url TEXT NOT NULL DEFAULT '',accent TEXT NOT NULL,content_json TEXT NOT NULL DEFAULT '[]',quiz_json TEXT NOT NULL DEFAULT '[]',image_url TEXT,cases_json TEXT,objectives_json TEXT,summary_json TEXT);
 CREATE TABLE IF NOT EXISTS progress (user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,completed INTEGER DEFAULT 0,updated_at TEXT DEFAULT CURRENT_TIMESTAMP,PRIMARY KEY(user_id,lesson_id));
-CREATE TABLE IF NOT EXISTS exam_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,score INTEGER NOT NULL,passed INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-CREATE TABLE IF NOT EXISTS login_events (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE IF NOT EXISTS exam_attempts (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,score INTEGER NOT NULL,passed INTEGER NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,ip_address TEXT,device_id TEXT);
+CREATE TABLE IF NOT EXISTS login_events (id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,ip_address TEXT,device_id TEXT,user_agent TEXT);
 CREATE INDEX IF NOT EXISTS login_events_user ON login_events(user_id,created_at);
+CREATE TABLE IF NOT EXISTS rate_limits (key TEXT PRIMARY KEY,window_started INTEGER NOT NULL,attempts INTEGER NOT NULL,blocked_until INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS lesson_views (user_id INTEGER NOT NULL,lesson_id INTEGER NOT NULL,first_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,last_viewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,opens INTEGER NOT NULL DEFAULT 1,PRIMARY KEY(user_id,lesson_id));
 CREATE TABLE IF NOT EXISTS analytics_metadata (started_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT,actor_id INTEGER NOT NULL,actor_name TEXT NOT NULL,action TEXT NOT NULL,target TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -85,6 +86,13 @@ const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
   if(!columns.some(column=>column.name==='source_name'))await env.DB.exec('ALTER TABLE news ADD COLUMN source_name TEXT')
   if(!columns.some(column=>column.name==='ai_generated'))await env.DB.exec('ALTER TABLE news ADD COLUMN ai_generated INTEGER NOT NULL DEFAULT 0')
   if(!columns.some(column=>column.name==='published_at'))await env.DB.exec('ALTER TABLE news ADD COLUMN published_at TEXT')
+  const loginColumns=(await env.DB.prepare('PRAGMA table_info(login_events)').all()).results||[]
+  if(!loginColumns.some(column=>column.name==='ip_address'))await env.DB.exec('ALTER TABLE login_events ADD COLUMN ip_address TEXT')
+  if(!loginColumns.some(column=>column.name==='device_id'))await env.DB.exec('ALTER TABLE login_events ADD COLUMN device_id TEXT')
+  if(!loginColumns.some(column=>column.name==='user_agent'))await env.DB.exec('ALTER TABLE login_events ADD COLUMN user_agent TEXT')
+  const examColumns=(await env.DB.prepare('PRAGMA table_info(exam_attempts)').all()).results||[]
+  if(!examColumns.some(column=>column.name==='ip_address'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN ip_address TEXT')
+  if(!examColumns.some(column=>column.name==='device_id'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN device_id TEXT')
 })())
 const all=async(env,sql,values=[])=>(await env.DB.prepare(sql).bind(...values).all()).results||[]
 const get=async(env,sql,values=[])=>await env.DB.prepare(sql).bind(...values).first()
@@ -92,6 +100,17 @@ const run=async(env,sql,values=[])=>{
   const result=await env.DB.prepare(sql).bind(...values).run()
   return{changes:Number(result.meta?.changes)||0,lastInsertRowid:Number(result.meta?.last_row_id)||0}
 }
+const requestIp=request=>clean(request.headers.get('cf-connecting-ip')||'unknown').split(',')[0].slice(0,64)
+const requestDeviceId=request=>{const value=clean(request.headers.get('x-device-id'));return /^[a-z0-9_-]{16,80}$/i.test(value)?value:'unknown'}
+const requestUserAgent=request=>clean(request.headers.get('user-agent')||'unknown').slice(0,500)
+async function consumeLoginRate(env,key,limit){
+  const now=Date.now(),record=await get(env,'SELECT window_started,attempts,blocked_until FROM rate_limits WHERE key=?',[key])
+  if(Number(record?.blocked_until)>now)return Number(record.blocked_until)
+  const sameWindow=record&&now-Number(record.window_started)<RATE_WINDOW_MS,attempts=(sameWindow?Number(record.attempts):0)+1,windowStarted=sameWindow?Number(record.window_started):now,blockedUntil=attempts>limit?now+LOCK_MS:0
+  await run(env,'INSERT INTO rate_limits(key,window_started,attempts,blocked_until) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET window_started=excluded.window_started,attempts=excluded.attempts,blocked_until=excluded.blocked_until',[key,windowStarted,attempts,blockedUntil])
+  return blockedUntil
+}
+const loginRateLimit=async(request,env)=>{const ip=requestIp(request),device=requestDeviceId(request);return Math.max(await consumeLoginRate(env,`device:${ip}:${device}`,DEVICE_LOGIN_LIMIT),await consumeLoginRate(env,`ip:${ip}`,SHARED_IP_LOGIN_LIMIT))}
 const bodyJson=async request=>{
   const size=Number(request.headers.get('content-length')||0)
   if(size>12*1024*1024)throw Object.assign(new Error('Файл хэт том байна.'),{status:413})
@@ -179,8 +198,8 @@ async function bootstrap(request,env){
   const definitions={
     users:['id','name','email','password_hash','created_at','username','role','session_version','surname','department','position','phone','must_change_password'],
     lessons:['id','title','description','duration','level','category','video_url','accent','content_json','quiz_json','image_url','cases_json','objectives_json','summary_json'],
-    progress:['user_id','lesson_id','completed','updated_at'],exam_attempts:['id','user_id','lesson_id','score','passed','created_at'],
-    login_events:['id','user_id','created_at'],lesson_views:['user_id','lesson_id','first_viewed_at','last_viewed_at','opens'],analytics_metadata:['started_at'],
+    progress:['user_id','lesson_id','completed','updated_at'],exam_attempts:['id','user_id','lesson_id','score','passed','created_at','ip_address','device_id'],
+    login_events:['id','user_id','created_at','ip_address','device_id','user_agent'],lesson_views:['user_id','lesson_id','first_viewed_at','last_viewed_at','opens'],analytics_metadata:['started_at'],
     audit_logs:['id','actor_id','actor_name','action','target','created_at'],news:['id','title','body','author','category','filename','pdf','created_at','updated_at','mime_type','external_url'],
     notifications:['id','type','title','message','target_url','created_at'],notification_reads:['notification_id','user_id','read_at']
   }
@@ -218,13 +237,15 @@ async function handleApi(request,env,ctx){
   if(method==='GET'&&path==='/api/health')return json({ok:true,database:!!await get(env,"SELECT value FROM system_meta WHERE key='bootstrap_complete'")})
   if(method==='POST'&&path==='/api/auth/register')return json({message:'Нийтийн бүртгэл хаалттай. Хэрэглэгчийг админ үүсгэнэ.'},403)
   if(method==='POST'&&path==='/api/auth/login'){
+    const rateLockedUntil=await loginRateLimit(request,env)
+    if(rateLockedUntil>Date.now()){const seconds=Math.ceil((rateLockedUntil-Date.now())/1000);return json({message:`Энэ төхөөрөмжөөс 1 минутанд хэт олон нэвтрэх оролдлого хийсэн байна. ${Math.ceil(seconds/60)} минутын дараа дахин оролдоно уу.`},429,{'retry-after':String(seconds)})}
     const body=await bodyJson(request),identifier=clean(body.identifier||body.email).slice(0,160),password=typeof body.password==='string'&&enc.encode(body.password).length<=72?body.password:''
-    const ip=request.headers.get('cf-connecting-ip')||'unknown',key=`${ip}|${identifier.toLowerCase()}`,record=loginAttempts.get(key)
+    const ip=requestIp(request),key=`${ip}|${identifier.toLowerCase()}`,record=loginAttempts.get(key)
     if(record?.lockedUntil>Date.now())return json({message:'Олон удаа буруу оролдсон байна. 15 минутын дараа дахин оролдоно уу.'},429,{'retry-after':'900'})
     const user=await get(env,'SELECT * FROM users WHERE lower(email)=lower(?) OR lower(username)=lower(?)',[identifier,identifier])
     const valid=user?await bcrypt.compare(password,user.password_hash):false
     if(!user||!valid){const failures=(record?.failures||0)+1;loginAttempts.set(key,{failures,lockedUntil:failures>=LOGIN_LIMIT?Date.now()+LOCK_MS:0});return json({message:'Нэвтрэх нэр эсвэл нууц үг буруу байна.'},failures>=LOGIN_LIMIT?429:401)}
-    loginAttempts.delete(key);await run(env,'INSERT INTO login_events(user_id) VALUES(?)',[user.id])
+    loginAttempts.delete(key);await run(env,'INSERT INTO login_events(user_id,ip_address,device_id,user_agent) VALUES(?,?,?,?)',[user.id,ip,requestDeviceId(request),requestUserAgent(request)])
     return json({user:safeUser(user),token:await signToken(user,env.JWT_SECRET)})
   }
   const user=await currentUser(request,env)
@@ -251,7 +272,7 @@ async function handleApi(request,env,ctx){
   let match=idMatch(/^\/api\/lessons\/(\d+)\/view$/)
   if(method==='POST'&&match){if(!await get(env,'SELECT id FROM lessons WHERE id=?',[match[1]]))return json({message:'Хичээл олдсонгүй.'},404);if(user.role!=='admin')await run(env,`INSERT INTO lesson_views(user_id,lesson_id) VALUES(?,?) ON CONFLICT(user_id,lesson_id) DO UPDATE SET last_viewed_at=CURRENT_TIMESTAMP,opens=lesson_views.opens+1`,[user.id,match[1]]);return json({ok:true})}
   match=idMatch(/^\/api\/lessons\/(\d+)\/progress$/)
-  if(method==='POST'&&match){const lesson=await get(env,'SELECT quiz_json FROM lessons WHERE id=?',[match[1]]);if(!lesson)return json({message:'Хичээл олдсонгүй.'},404);const quiz=parseJson(lesson.quiz_json,[]),answers=(await bodyJson(request)).answers;if(!quiz.length||!Array.isArray(answers)||answers.length!==quiz.length||answers.some((a,i)=>!Number.isInteger(a)||a<0||a>=quiz[i].options.length))return json({message:'Бүх асуултад хариулна уу.'},400);const score=Math.round(quiz.filter((q,i)=>q.answer===answers[i]).length/quiz.length*100),completed=score>=50;await run(env,'INSERT INTO exam_attempts(user_id,lesson_id,score,passed) VALUES(?,?,?,?)',[user.id,match[1],score,completed?1:0]);if(completed)await run(env,`INSERT INTO progress(user_id,lesson_id,completed) VALUES(?,?,1) ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=1,updated_at=CURRENT_TIMESTAMP`,[user.id,match[1]]);return json({score,completed,review:quiz.map(q=>({answer:q.answer,explain:q.explain}))})}
+  if(method==='POST'&&match){const lesson=await get(env,'SELECT quiz_json FROM lessons WHERE id=?',[match[1]]);if(!lesson)return json({message:'Хичээл олдсонгүй.'},404);const quiz=parseJson(lesson.quiz_json,[]),payload=await bodyJson(request),ip=requestIp(request),device=requestDeviceId(request);if(payload.integrity_failure===true){await run(env,'INSERT INTO exam_attempts(user_id,lesson_id,score,passed,ip_address,device_id) VALUES(?,?,0,0,?,?)',[user.id,match[1],ip,device]);return json({score:0,completed:false,review:[]})}const answers=payload.answers;if(!quiz.length||!Array.isArray(answers)||answers.length!==quiz.length||answers.some((a,i)=>!Number.isInteger(a)||a<0||a>=quiz[i].options.length))return json({message:'Бүх асуултад хариулна уу.'},400);const score=Math.round(quiz.filter((q,i)=>q.answer===answers[i]).length/quiz.length*100),completed=score>=50;await run(env,'INSERT INTO exam_attempts(user_id,lesson_id,score,passed,ip_address,device_id) VALUES(?,?,?,?,?,?)',[user.id,match[1],score,completed?1:0,ip,device]);if(completed)await run(env,`INSERT INTO progress(user_id,lesson_id,completed) VALUES(?,?,1) ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=1,updated_at=CURRENT_TIMESTAMP`,[user.id,match[1]]);return json({score,completed,review:quiz.map(q=>({answer:q.answer,explain:q.explain}))})}
 
   if(method==='GET'&&path==='/api/notifications'){return json(await all(env,`SELECT n.id,n.type,n.title,n.message,n.target_url,n.created_at,CASE WHEN r.notification_id IS NULL THEN 0 ELSE 1 END is_read FROM notifications n LEFT JOIN notification_reads r ON r.notification_id=n.id AND r.user_id=? WHERE n.created_at>=(SELECT created_at FROM users WHERE id=?) ORDER BY n.id DESC LIMIT 30`,[user.id,user.id]))}
   match=idMatch(/^\/api\/notifications\/(\d+)\/read$/)
@@ -279,7 +300,7 @@ async function handleApi(request,env,ctx){
   if(method==='GET'&&path==='/api/admin/overview'){const users=await all(env,'SELECT id,name,username,email,role,created_at,surname,department,position,phone,must_change_password FROM users ORDER BY created_at DESC'),lessons=await all(env,'SELECT * FROM lessons ORDER BY id');return json({stats:{users:Number((await get(env,"SELECT count(*) count FROM users WHERE role='student'")).count),lessons:Number((await get(env,'SELECT count(*) count FROM lessons')).count),completions:Number((await get(env,'SELECT count(*) count FROM progress WHERE completed=1')).count)},users,lessons:lessons.map(lessonPayload)})}
   if(method==='GET'&&path==='/api/admin/audit-logs')return json(await all(env,'SELECT * FROM audit_logs ORDER BY id DESC LIMIT 200'))
   match=idMatch(/^\/api\/admin\/users\/(\d+)\/details$/)
-  if(method==='GET'&&match){const account=await get(env,'SELECT id,name,surname,username,email,role,created_at,department,position,phone FROM users WHERE id=?',[match[1]]);if(!account)return json({message:'Хэрэглэгч олдсонгүй.'},404);const login=await get(env,'SELECT max(created_at) last_login,count(*) login_count FROM login_events WHERE user_id=?',[account.id]),lastLesson=await get(env,'SELECT l.title,v.last_viewed_at FROM lesson_views v JOIN lessons l ON l.id=v.lesson_id WHERE v.user_id=? ORDER BY v.last_viewed_at DESC LIMIT 1',[account.id]),courses=await all(env,`SELECT l.id,l.title,COALESCE((SELECT opens FROM lesson_views WHERE user_id=? AND lesson_id=l.id),0) opens,(SELECT last_viewed_at FROM lesson_views WHERE user_id=? AND lesson_id=l.id) last_viewed_at,(SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts,(SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score,(SELECT max(score) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) best_score,(SELECT count(*) FROM progress WHERE user_id=? AND lesson_id=l.id AND completed=1) completed FROM lessons l ORDER BY l.id`,Array(6).fill(account.id));const normalized=courses.map(c=>({...c,opens:Number(c.opens)||0,attempts:Number(c.attempts)||0,completed:Number(c.completed)>0})),scores=normalized.filter(c=>c.last_score!==null).map(c=>Number(c.last_score));return json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,last_lesson:lastLesson||null,summary:{viewed:normalized.filter(c=>c.opens>0).length,tested:normalized.filter(c=>c.attempts>0).length,completed:normalized.filter(c=>c.completed).length,average:scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null},courses:normalized})}
+  if(method==='GET'&&match){const account=await get(env,'SELECT id,name,surname,username,email,role,created_at,department,position,phone FROM users WHERE id=?',[match[1]]);if(!account)return json({message:'Хэрэглэгч олдсонгүй.'},404);const login=await get(env,'SELECT max(created_at) last_login,count(*) login_count FROM login_events WHERE user_id=?',[account.id]),lastConnection=await get(env,'SELECT ip_address,device_id,user_agent FROM login_events WHERE user_id=? ORDER BY id DESC LIMIT 1',[account.id]),lastLesson=await get(env,'SELECT l.title,v.last_viewed_at FROM lesson_views v JOIN lessons l ON l.id=v.lesson_id WHERE v.user_id=? ORDER BY v.last_viewed_at DESC LIMIT 1',[account.id]),courses=await all(env,`SELECT l.id,l.title,COALESCE((SELECT opens FROM lesson_views WHERE user_id=? AND lesson_id=l.id),0) opens,(SELECT last_viewed_at FROM lesson_views WHERE user_id=? AND lesson_id=l.id) last_viewed_at,(SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts,(SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score,(SELECT max(score) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) best_score,(SELECT count(*) FROM progress WHERE user_id=? AND lesson_id=l.id AND completed=1) completed FROM lessons l ORDER BY l.id`,Array(6).fill(account.id));const normalized=courses.map(c=>({...c,opens:Number(c.opens)||0,attempts:Number(c.attempts)||0,completed:Number(c.completed)>0})),scores=normalized.filter(c=>c.last_score!==null).map(c=>Number(c.last_score));return json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,last_ip:lastConnection?.ip_address||null,last_device_id:lastConnection?.device_id||null,last_user_agent:lastConnection?.user_agent||null,last_lesson:lastLesson||null,summary:{viewed:normalized.filter(c=>c.opens>0).length,tested:normalized.filter(c=>c.attempts>0).length,completed:normalized.filter(c=>c.completed).length,average:scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null},courses:normalized})}
   match=idMatch(/^\/api\/admin\/users\/(\d+)\/password$/)
   if(method==='POST'&&match){const body=await bodyJson(request),error=passwordError(body.password);if(error)return json({message:error},400);if(!(await run(env,'UPDATE users SET password_hash=?,must_change_password=1,session_version=session_version+1 WHERE id=?',[await bcrypt.hash(body.password,12),match[1]])).changes)return json({message:'Хэрэглэгч олдсонгүй.'},404);await audit(env,user,'POST',path);return json({ok:true})}
   match=idMatch(/^\/api\/admin\/users\/(\d+)\/role$/)

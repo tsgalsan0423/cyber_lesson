@@ -34,6 +34,15 @@ function ThemeToggle({ theme, toggleTheme }) {
   return <button type="button" className="theme-toggle" onClick={toggleTheme} title={dark?'Light mode':'Dark mode'} aria-label={dark?'Light mode руу солих':'Dark mode руу солих'}>{dark?<Sun size={17}/>:<Moon size={17}/>}<span>{dark?'Light':'Dark'}</span></button>
 }
 
+function SaveToast({ message, onClose }) {
+  if (!message) return null
+  return <div className="save-toast" role="status" aria-live="polite">
+    <CheckCircle2/>
+    <span>{message}</span>
+    <button type="button" aria-label="Мэдэгдэл хаах" onClick={onClose}><X/></button>
+  </div>
+}
+
 const dailyTips = [
   'Төхөөрөмж, аппликейшнаа тогтмол шинэчилцгээе.',
   'Танихгүй холбоос дээр дарахаасаа өмнө хаягийг шалгацгаая.',
@@ -96,27 +105,92 @@ function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
 }
 
 const stepEmoji={mail:'📨',search:'🔎',shield:'🛡️',key:'🔑',lock:'🔐',spark:'✨',wifi:'📡',eye:'👀',bug:'🦠',save:'💾',alert:'🚨',user:'🕵️',settings:'⚙️',share:'📱',unplug:'🔌',phone:'📞'}
-function LessonModal({ lesson, onClose, onComplete }) {
+function LessonModal({ lesson, onClose, onComplete, onIntegrityFailure }) {
   const [questions,setQuestions]=useState(()=>randomQuiz(lesson?.quiz||[]))
   const [page,setPage]=useState(0), [answers,setAnswers]=useState([]), [checked,setChecked]=useState(false)
   const [result,setResult]=useState(null), [saving,setSaving]=useState(false), [error,setError]=useState('')
-  useEffect(()=>{setPage(0);setAnswers([]);setChecked(false);setResult(null);setError('');setQuestions(randomQuiz(lesson?.quiz||[]))},[lesson?.id])
+  const [screenShield,setScreenShield]=useState(false),[guardError,setGuardError]=useState('')
+  const [examStartMode,setExamStartMode]=useState(null),[examConsent,setExamConsent]=useState(false)
+  const [resultSeconds,setResultSeconds]=useState(null)
+  const examGuardRef=useRef(false),retryGuardRef=useRef(null),onCloseRef=useRef(onClose)
+  useEffect(()=>{onCloseRef.current=onClose},[onClose])
+  useEffect(()=>{setPage(0);setAnswers([]);setChecked(false);setResult(null);setResultSeconds(null);setError('');setScreenShield(false);setGuardError('');setExamStartMode(null);setExamConsent(false);examGuardRef.current=false;setQuestions(randomQuiz(lesson?.quiz||[]))},[lesson?.id])
   useEffect(()=>{
     if (!lesson) return
     const previous=document.body.style.overflow
     document.body.style.overflow='hidden'
-    const escape=e=>{if(e.key==='Escape')onClose()}
+    const escape=e=>{if(e.key==='Escape'){if(examStartMode)setExamStartMode(null);else onClose()}}
     window.addEventListener('keydown',escape)
     return()=>{document.body.style.overflow=previous;window.removeEventListener('keydown',escape)}
-  },[lesson?.id,onClose])
-  if (!lesson) return null
-  const theory=lesson.content||[]
-  const cases=(Array.isArray(lesson.cases)&&lesson.cases.length?lesson.cases:theory.filter(s=>s.example).map(s=>({...s,title:s.title,text:s.example,explanation:s.text,example:null}))).map(s=>({...s,case:true}))
-  const steps=[...theory,...cases,{title:'Гол санаа — шалгалтын өмнө давтах',text:(lesson.summary||[]).map(s=>'• '+s).join('\n'),icon:'book',review:true}]
+  },[lesson?.id,onClose,examStartMode])
+  const theory=lesson?.content||[]
+  const cases=(Array.isArray(lesson?.cases)&&lesson.cases.length?lesson.cases:theory.filter(s=>s.example).map(s=>({...s,title:s.title,text:s.example,explanation:s.text,example:null}))).map(s=>({...s,case:true}))
+  const steps=[...theory,...cases,{title:'Гол санаа — шалгалтын өмнө давтах',text:(lesson?.summary||[]).map(s=>'• '+s).join('\n'),icon:'book',review:true}]
   const theoryStart=1,practiceStart=theoryStart+theory.length,quizStart=1+steps.length
   const phase=page===0?'Хичээлийн тухай':page<practiceStart?'Онол':page<quizStart?'Дадлага ажил':'Шалгалт'
   const index=page-quizStart, isQuiz=index>=0, quiz=questions[index], story=page>0&&page<quizStart?steps[page-1]:null
   const phaseTabs=[['Хичээлийн тухай',0],['Онол',theoryStart],['Дадлага ажил',practiceStart],['Шалгалт',quizStart]]
+  useEffect(()=>{
+    if(!isQuiz||result||!questions.length)return
+    document.body.classList.add('exam-secure-mode')
+    const block=e=>e.preventDefault()
+    const blockShortcut=e=>{
+      if((e.ctrlKey||e.metaKey)&&['a','c','p','s','u','v','x'].includes(e.key.toLowerCase()))e.preventDefault()
+      if(e.key==='PrintScreen')e.preventDefault()
+    }
+    const invalidate=async()=>{
+      if(examGuardRef.current)return
+      examGuardRef.current=true
+      setScreenShield(true);setSaving(true);setGuardError('')
+      try{
+        await onComplete(lesson,[],{integrityFailure:true})
+        onIntegrityFailure?.('Шалгалтын үеэр browser эсвэл цонх сольсон тул энэ оролдлогын оноо 0 боллоо. Та шалгалтыг дахин өгч болно.')
+        onClose()
+      }catch(e){examGuardRef.current=false;setGuardError(e.message);setSaving(false)}
+    }
+    retryGuardRef.current=invalidate
+    const visibility=()=>{if(document.visibilityState==='hidden')invalidate()}
+    const blur=()=>invalidate()
+    document.addEventListener('visibilitychange',visibility)
+    window.addEventListener('blur',blur)
+    document.addEventListener('copy',block,true)
+    document.addEventListener('cut',block,true)
+    document.addEventListener('paste',block,true)
+    document.addEventListener('contextmenu',block,true)
+    document.addEventListener('dragstart',block,true)
+    document.addEventListener('selectstart',block,true)
+    window.addEventListener('keydown',blockShortcut,true)
+    return()=>{
+      document.body.classList.remove('exam-secure-mode')
+      document.removeEventListener('visibilitychange',visibility)
+      window.removeEventListener('blur',blur)
+      document.removeEventListener('copy',block,true)
+      document.removeEventListener('cut',block,true)
+      document.removeEventListener('paste',block,true)
+      document.removeEventListener('contextmenu',block,true)
+      document.removeEventListener('dragstart',block,true)
+      document.removeEventListener('selectstart',block,true)
+      window.removeEventListener('keydown',blockShortcut,true)
+      retryGuardRef.current=null
+    }
+  },[isQuiz,result,questions.length,lesson,onComplete,onClose,onIntegrityFailure])
+  useEffect(()=>{
+    if(!result){setResultSeconds(null);return}
+    const started=Date.now()
+    setResultSeconds(30)
+    const countdown=window.setInterval(()=>setResultSeconds(Math.max(0,30-Math.floor((Date.now()-started)/1000))),1000)
+    const closeTimer=window.setTimeout(()=>onCloseRef.current?.(),30000)
+    return()=>{window.clearInterval(countdown);window.clearTimeout(closeTimer)}
+  },[result])
+  if (!lesson) return null
+  const requestExamStart=(mode='start')=>{setExamConsent(false);setExamStartMode(mode)}
+  const confirmExamStart=()=>{
+    if(examStartMode==='retry'){
+      setResult(null);setAnswers([]);setChecked(false);setQuestions(randomQuiz(lesson.quiz))
+    }
+    examGuardRef.current=false
+    setPage(quizStart);setExamStartMode(null)
+  }
   const finish=async()=>{
     setSaving(true);setError('')
     try{
@@ -127,11 +201,13 @@ function LessonModal({ lesson, onClose, onComplete }) {
   }
   const next=()=>{setPage(p=>p+1);setChecked(false)}
   return <div className="modal-bg lesson-modal-bg"><div className="interactive-modal expanded-lesson" role="dialog" aria-modal="true" aria-label={lesson.title} style={{'--lesson-accent':lesson.accent}}>
+    {screenShield&&<div className="exam-screen-shield" role="alert" aria-label="Шалгалт зогслоо">{guardError&&<><ShieldCheck/><h2>Оноог хадгалж чадсангүй</h2><p>{guardError}</p><button className="primary" onClick={()=>retryGuardRef.current?.()}>Дахин хадгалах</button></>}</div>}
+    {examStartMode&&<div className="exam-warning-backdrop"><section className="exam-start-warning" role="alertdialog" aria-modal="true" aria-labelledby="exam-warning-title"><span className="exam-warning-icon"><Shield/></span><div className="eyebrow">ШАЛГАЛТЫН ЖУРАМ</div><h2 id="exam-warning-title">Шалгалт эхлэхээс өмнө дараах зүйлсийг анхаарна уу</h2><ul><li>Шалгалтын үед шалгалтын цонхоос гарах, өөр хэсэгт дарах, browser солих гэх мэт үйлдэл хийх үед шалгалтаас гаргаж, тухайн шалгалтын оноог <b>0</b> болгоно.</li><li>Copy, cut, paste, текст сонгох гэх мэт үйлдлүүд хийх боломжгүй.</li><li>Шалгалтаас гарсан тохиолдолд дахин өгөх боломжтой.</li><li>Шалгалт дууссанаас хойш 30 секундын дараа шалгалтын хариуг харуулсан цонх автоматаар хаагдана.</li></ul><label className="exam-consent"><input type="checkbox" checked={examConsent} onChange={e=>setExamConsent(e.target.checked)}/><span>Дээрх нөхцөлийг уншиж, зөвшөөрч байна.</span></label><div className="exam-warning-actions"><button className="back" onClick={()=>setExamStartMode(null)}>Буцах</button><button className="primary" disabled={!examConsent} onClick={confirmExamStart}>Зөвшөөрч эхлэх <ArrowRight/></button></div></section></div>}
     <button className="modal-close" aria-label="Хаах" onClick={onClose}><X/></button>
     <div className="lesson-modal-top"><span>{lesson.category} · {phase} · {questions.length} асуулт</span><h2>{lesson.title}</h2><div className="lesson-dots">{[null,...steps,...questions].map((_,i)=><i key={i} className={i<=page?'active':''}/>)}</div></div>
-    <div className="lesson-phases four-phases" aria-label="Хичээлийн бүтэц">{phaseTabs.map(([label,target],i)=><button key={label} className={phase===label?'active':''} disabled={saving||result!==null} onClick={()=>{setPage(target);setChecked(false)}}>{i+1}. {label}</button>)}</div>
+    <div className="lesson-phases four-phases" aria-label="Хичээлийн бүтэц">{phaseTabs.map(([label,target],i)=><button key={label} className={phase===label?'active':''} disabled={saving||result!==null||isQuiz} onClick={()=>{if(target===quizStart)requestExamStart();else{setPage(target);setChecked(false)}}}>{i+1}. {label}</button>)}</div>
     <div className="lesson-scroll">
-    {result?<div className="quiz-page"><div className="story-visual">{result.completed?'🏆':'📚'}</div><h3>{result.score}% — {result.completed?'Тэнцсэн':'Тэнцсэнгүй'}</h3><p>{result.completed?'Энэ сэдвийн 100 XP таны ахицад тооцогдоно. Давтан үзэхэд XP нэмэгдэхгүй.':'Дүүргэх босго 50%. Тайлангаа уншаад сорилоо дахин өгөөрэй.'}</p>{questions.map((q,i)=>{const review=result.review?.[q.originalIndex];const correct=Number.isInteger(q.answer)&&q.answer>=0?q.answer:q.optionOrder.indexOf(review?.answer);return <div key={i} className="answer-review"><b>{answers[i]===correct?'✓':'✗'} {q.question}</b><p>Таны хариулт: {q.options[answers[i]]}</p><p>Зөв: {q.options[correct]}</p><RichText text={q.explain||review?.explain}/></div>})}</div>
+    {result?<div className="quiz-page"><div className="result-auto-close"><Clock3/> Хариуны цонх {resultSeconds??30} секундын дараа автоматаар хаагдана.</div><div className="story-visual">{result.completed?'🏆':'📚'}</div><h3>{result.score}% — {result.completed?'Тэнцсэн':'Тэнцсэнгүй'}</h3><p>{result.completed?'Энэ сэдвийн 100 XP таны ахицад тооцогдоно. Давтан үзэхэд XP нэмэгдэхгүй.':'Дүүргэх босго 50%. Тайлангаа уншаад сорилоо дахин өгөөрэй.'}</p>{questions.map((q,i)=>{const review=result.review?.[q.originalIndex];const correct=Number.isInteger(q.answer)&&q.answer>=0?q.answer:q.optionOrder.indexOf(review?.answer);return <div key={i} className="answer-review"><b>{answers[i]===correct?'✓':'✗'} {q.question}</b><p>Таны хариулт: {q.options[answers[i]]}</p><p>Зөв: {q.options[correct]}</p><RichText text={q.explain||review?.explain}/></div>})}</div>
     :page===0?<div className="story-page lesson-about"><img className="topic-banner" src={lesson.image_url||`/images/topic-${((lesson.id-1)%6)+1}.svg`} alt={lesson.title}/><div className="story-count">ХИЧЭЭЛИЙН ТУХАЙ</div><h3>{lesson.title}</h3><p>{lesson.description}</p><div className="lesson-about-meta"><span><b>Ангилал</b>{lesson.category}</span><span><b>Түвшин</b>{lesson.level}</span><span><b>Хугацаа</b>{lesson.duration}</span></div><section className="answer-review"><h3>Энэ хичээлийн дараа та</h3><RichText text={(lesson.objectives||[]).map(s=>'• '+s).join('\n')||'• Энэ сэдвийн гол эрсдэл болон хамгаалах аргыг ойлгоно.'}/></section></div>
     :story?.review?<div className="story-page"><h3>{story.title}</h3><RichText text={story.text}/><p>Эдгээр ойлголтоо давтаад шалгалтаа эхлүүлээрэй.</p></div>
     :story?<div className="story-page"><img className="topic-banner" src={lesson.image_url||`/images/topic-${((lesson.id-1)%6)+1}.svg`} alt={lesson.title}/><div className="story-count">{phase.toUpperCase()} {story.case?page-practiceStart+1:page} / {story.case?cases.length:theory.length}</div><h3>{stepEmoji[story.icon]||'🛡️'} {story.title}</h3>{story.case?<RichText text={story.text}/>:<TheoryContent story={story}/>}{story.case&&<details className="lesson-example"><summary>Дадлага ажлын тайлбар харах</summary><TheoryContent story={{title:story.title,text:story.explanation||story.solution||''}}/></details>}</div>
@@ -140,8 +216,8 @@ function LessonModal({ lesson, onClose, onComplete }) {
     {error&&<div role="alert" className="error">{error}</div>}
     </div>
     <div className="lesson-nav">
-    {result?<><button className="back" onClick={()=>{setPage(0);setResult(null);setAnswers([]);setChecked(false);setQuestions(randomQuiz(lesson.quiz))}}>Дахин унших</button><button className="primary" onClick={result.completed?onClose:()=>{setPage(quizStart);setResult(null);setAnswers([]);setChecked(false);setQuestions(randomQuiz(lesson.quiz))}}>{result.completed?'Дуусгах':'Сорил дахин өгөх'}</button></>
-    :!isQuiz?<><button className="back" disabled={page===0} onClick={()=>setPage(p=>p-1)}>← Өмнөх</button><button className="primary" onClick={next}>{page===quizStart-1?'Сорил эхлүүлэх':'Дараагийн хэсэг'} <ArrowRight/></button></>
+    {result?<><button className="back" onClick={()=>{setPage(0);setResult(null);setAnswers([]);setChecked(false);setQuestions(randomQuiz(lesson.quiz))}}>Дахин унших</button><button className="primary" onClick={result.completed?onClose:()=>requestExamStart('retry')}>{result.completed?'Дуусгах':'Сорил дахин өгөх'}</button></>
+    :!isQuiz?<><button className="back" disabled={page===0} onClick={()=>setPage(p=>p-1)}>← Өмнөх</button><button className="primary" onClick={page===quizStart-1?()=>requestExamStart():next}>{page===quizStart-1?'Сорил эхлүүлэх':'Дараагийн хэсэг'} <ArrowRight/></button></>
     :quiz?<><span>{index+1} / {questions.length}</span><button className="primary" disabled={answers[index]===undefined||saving} onClick={Number.isInteger(quiz.answer)&&quiz.answer>=0?(!checked?()=>setChecked(true):index===questions.length-1?finish:next):(index===questions.length-1?finish:next)}>{saving?'Хадгалж байна…':Number.isInteger(quiz.answer)&&quiz.answer>=0?!checked?'Хариулт шалгах':index===questions.length-1?'Үр дүн харах':'Дараагийн асуулт':index===questions.length-1?'Үр дүн харах':'Дараагийн асуулт'}</button></>
     :<button className="primary" onClick={onClose}>Хаах</button>}
     </div>
@@ -161,6 +237,7 @@ function LessonCarousel({lessons,renderLesson}) {
 function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpdate }) {
   const [passwordOpen,setPasswordOpen]=useState(false)
   const [profileOpen,setProfileOpen]=useState(false),[profileMenu,setProfileMenu]=useState(false)
+  const [saveNotice,setSaveNotice]=useState('')
   const [activeSection,setActiveSection]=useState('top')
   const [newsCount,setNewsCount]=useState(0)
   const [sidebarHidden,setSidebarHidden]=useState(()=>localStorage.getItem('securelab-sidebar-hidden')!=='false')
@@ -183,6 +260,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     return()=>window.removeEventListener('scroll',onScroll)
   },[])
   const [viewError,setViewError]=useState('')
+  const [examNotice,setExamNotice]=useState('')
   useEffect(()=>{
     if(!selected || onAdminReturn) return
     setViewError('')
@@ -196,8 +274,8 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
   }),[lessons,filter])
   const filtered = useMemo(()=>matchingLessons.filter(l=>!l.completed&&!l.attempts),[matchingLessons])
   const completedLessons = useMemo(()=>matchingLessons.filter(l=>l.attempts>0||l.completed),[matchingLessons])
-  const toggleComplete = async (lesson, answers) => {
-    const result = await request(`/lessons/${lesson.id}/progress`, {method:'POST',body:JSON.stringify({answers})})
+  const toggleComplete = async (lesson, answers, options={}) => {
+    const result = await request(`/lessons/${lesson.id}/progress`, {method:'POST',keepalive:!!options.integrityFailure,body:JSON.stringify(options.integrityFailure?{integrity_failure:true}:{answers})})
     setLessons(ls=>ls.map(l=>l.id===lesson.id?{...l,completed:result.completed?1:l.completed,last_score:result.score,attempts:(l.attempts||0)+1}:l))
     setSelected(s=>s?.id===lesson.id?{...s,completed:result.completed?1:s.completed,last_score:result.score}:s)
     return result
@@ -209,7 +287,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     <div className="main-area">
       <header><button className="menu-btn" aria-label={sidebarHidden?'Цэс харуулах':'Цэс нуух'} title={sidebarHidden?'Цэс харуулах':'Цэс нуух'} onClick={()=>{if(window.matchMedia('(max-width:760px)').matches)setMenu(true);else setSidebarHidden(value=>!value)}}><Menu/></button><div className="header-user"><Notifications request={request}/><div className="profile-wrap"><button type="button" className="profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Суралцагч</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordOpen(true);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/></div></header>
       <div className="home-video-cover" aria-hidden="true"><video autoPlay muted loop playsInline preload="auto" tabIndex="-1"><source src="/media/phishing.mp4" type="video/mp4"/></video></div>
-      <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}
+      <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}{examNotice&&<div className="exam-guard-banner" role="alert"><Shield/><span>{examNotice}</span><button type="button" onClick={()=>setExamNotice('')} aria-label="Мэдэгдэл хаах"><X/></button></div>}
         <section className="welcome"><div><div className="eyebrow"><Sparkles/> ТАНЫ СУРАЛЦАХ ОРОН ЗАЙ</div><h1>Сайн байна уу, {user.name.split(' ')[0]} 👋</h1><p>Өнөөдөр нэг алхам урагшилж, цахим хамгаалалтаа бэхжүүлцгээе.</p><button className="primary" onClick={()=>lessons[0]&&setSelected(lessons.find(l=>!l.completed)||lessons[0])}><Play size={18} fill="currentColor"/>Хичээлээ үргэлжлүүлэх</button></div><div className="orb"><div className="orbit"><ShieldCheck/></div><span className="dot d1"/><span className="dot d2"/><span className="dot d3"/></div></section>
         <section className="progress-row"><div className="progress-copy"><span className="progress-icon"><Zap/></span><div><b>Таны ахиц</b><small>{completeCount === lessons.length && lessons.length ? 'Бүх хичээлийг амжилттай дуусгалаа!' : 'Тууштай байгаарай, та сайн явж байна!'}</small></div></div><div className="progress-main"><div className="progress-label"><span>Нийт гүйцэтгэл</span><b>{lessons.length?Math.round(completeCount/lessons.length*100):0}%</b></div><div className="progress-track"><span style={{width:`${lessons.length?completeCount/lessons.length*100:0}%`}}/></div></div><div className="count"><b>{completeCount}</b><span>/ {lessons.length} хичээл</span></div></section>
         <div className="section-head" id="lessons"><div><span>СОРИЛТОД БЭЛЭН ҮҮ?</span><h2>Онол · Дадлага ажил · Шалгалт</h2></div></div>
@@ -222,8 +300,9 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
       </main><footer><Brand compact/><span>© 2026 Нийтийн мэдээллийн дэд бүтэц, Нээлттэй өгөгдлийн газар</span><span>Мэдлэгтэй бол Аюулгүй</span></footer>
     </div>
     {passwordOpen&&<PasswordReset self user={user} request={request} onClose={()=>setPasswordOpen(false)} onSaved={()=>logout('Нууц үг амжилттай солигдлоо. Шинэ нууц үгээрээ дахин нэвтэрнэ үү.')}/>}
-    {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setProfileOpen(false)}}/>}
-    <LessonModal lesson={selected} onClose={()=>setSelected(null)} onComplete={toggleComplete}/>
+    <SaveToast message={saveNotice} onClose={()=>setSaveNotice('')}/>
+    {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setSaveNotice('Таны мэдээллийн өөрчлөлт амжилттай хадгалагдлаа.')}}/>}
+    <LessonModal lesson={selected} onClose={()=>setSelected(null)} onComplete={toggleComplete} onIntegrityFailure={setExamNotice}/>
   </div>
 }
 
@@ -285,7 +364,7 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
     <aside className="admin-side"><div className="side-top admin-side-top"><OrganizationLogo/></div><div className="admin-badge"><ShieldCheck/> Админ удирдлага</div><nav><a className={adminActive==='admin-top'?'active':''} href="#admin-top" onClick={()=>setAdminActive('admin-top')}><LayoutGrid/>Хяналтын самбар</a><button className="learner-view" onClick={onLearnerView}><BookOpen/>Хичээл рүү орох</button><a className={adminActive==='admin-lessons'?'active':''} href="#admin-lessons" onClick={()=>setAdminActive('admin-lessons')}><Zap/>Интерактив хичээлүүд <span>{data.stats.lessons}</span></a><a className={adminActive==='admin-users'?'active':''} href="#admin-users" onClick={()=>setAdminActive('admin-users')}><Users/>Хэрэглэгчид <span>{data.stats.users}</span></a><a className={adminActive==='news'?'active':''} href="#news" onClick={()=>setAdminActive('news')}><BookOpen/>Мэдээ мэдээлэл <span>{newsCount}</span></a></nav><div className="side-bottom"><div className="mini-shield"><div className="avatar">G</div><div><b>{user.name}</b><small>Системийн админ</small></div></div></div></aside>
     <div className="admin-main"><header><div><small>СУРГАЛТЫН УДИРДЛАГА</small><h2>Админ панел</h2></div><div className="admin-header-actions"><div className="profile-wrap"><button type="button" className="profile admin-top-profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Админ</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordUser(user);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/><button className="preview-btn" onClick={onLearnerView}><BookOpen/>Хичээл үзэх</button><button className="primary" onClick={()=>openForm()}><Plus/>Шинэ хичээл</button></div></header>
       <main className="admin-content" id="admin-top"><div className="admin-welcome"><div><span>СИСТЕМИЙН ТОЙМ</span><h1>Сайн байна уу, {user.name}</h1><p>Сургалтын контент болон хэрэглэгчдийн мэдээллийг нэг дороос удирдана.</p></div><ShieldCheck/></div>
-        {notice&&<p className="success-notice" role="status">{notice}</p>}<AdminAnalytics request={request}/>
+        <AdminAnalytics request={request}/>
         {error&&<div className="error">{error}</div>}
         <section className="admin-section" id="admin-lessons"><div className="admin-title"><div><span>КОНТЕНТ</span><h2>Интерактив хичээлүүд</h2></div><button onClick={()=>openForm()}><Plus/> Нэмэх</button></div><div className="admin-table-wrap"><table><thead><tr><th>Хичээл</th><th>Ангилал</th><th>Түвшин</th><th>Хугацаа</th><th>Үйлдэл</th></tr></thead><tbody>{data.lessons.map(l=><tr key={l.id}><td><i style={{background:l.accent}}><Zap/></i><b>{l.title}</b></td><td>{l.category}</td><td><span className="table-pill">{l.level}</span></td><td>{l.duration}</td><td><button aria-label="Хичээл үзэх" title="Хичээл үзэх" onClick={()=>preview(l)}><Eye/></button><button aria-label="Засах" title="Засах" onClick={()=>openForm(l)}><Edit3/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>remove(l)}><Trash2/></button></td></tr>)}</tbody></table></div></section>
         <section className="admin-section" id="admin-users"><div className="admin-title"><div><span>БҮРЭН УДИРДЛАГА</span><h2>Хэрэглэгчид</h2></div><button onClick={()=>{setUserForm(emptyUser);setShowUserPassword(false);setError('');setShowUserForm(true)}}><Plus/> Хэрэглэгч үүсгэх</button></div><div className="user-table-tools"><div className="user-table-filters"><label className="admin-user-search"><Search size={18}/><input type="search" value={userSearch} onChange={e=>{setUserSearch(e.target.value);setUserPage(1)}} placeholder="Нэр, и-мэйл, албан тушаалаар хайх..." aria-label="Хэрэглэгч хайх"/>{userSearch&&<button type="button" title="Хайлтыг цэвэрлэх" aria-label="Хайлтыг цэвэрлэх" onClick={()=>{setUserSearch('');setUserPage(1)}}><X size={16}/></button>}</label><label className="admin-department-filter"><span>Нэгж</span><select value={userDepartment} onChange={e=>{setUserDepartment(e.target.value);setUserPage(1)}} aria-label="Газар, хэлтсээр харах"><option value="all">Бүх газар, хэлтэс</option>{departments.map(department=><option key={department} value={department}>{department}</option>)}</select></label></div><span>{userSearch||userDepartment!=='all'?`${filteredUsers.length} хэрэглэгч`:`Нийт ${data.users.length} хэрэглэгч`}</span></div>{userDepartment!=='all'&&<div className="user-filter-summary" aria-live="polite"><div><b>{userDepartment}</b><span>Тус нэгжид бүртгэлтэй хэрэглэгчид</span></div><strong>{filteredUsers.length}</strong><button type="button" onClick={()=>{setUserDepartment('all');setUserPage(1)}}><X size={15}/> Бүх нэгж</button></div>}<div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Нэгж / Албан тушаал</th><th>И-мэйл</th><th>Эрх</th><th>Удирдах</th></tr></thead><tbody>{pagedUsers.map(u=><tr key={u.id}><td><div className="user-cell"><span>{u.name[0]}</span><b>{u.surname?u.surname+' ':''}{u.name}</b></div></td><td>{u.department||'—'}<br/><small>{u.position||'—'}</small></td><td><b className="username-text">{u.email}</b>{u.phone&&<><br/><small>{u.phone}</small></>}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td><td className="user-actions"><button className="user-detail-button" title="Дэлгэрэнгүй мэдээлэл" aria-label={`${u.name}: дэлгэрэнгүй`} onClick={()=>openUserDetail(u)}><Eye/><span>Дэлгэрэнгүй</span></button><button title="Нууц үг шинэчлэх" aria-label={`${u.name}: нууц үг шинэчлэх`} onClick={()=>{setPasswordUser(u);setNotice('')}}><LockKeyhole/></button>{u.id!==user.id&&<><button aria-label="Эрх солих" title="Эрх солих" onClick={()=>userAction(u.id,'role',{role:u.role==='admin'?'student':'admin'})}><Shield/></button><button aria-label="Явц тэглэх" title="Явц тэглэх" onClick={()=>userAction(u.id,'reset-progress')}><Zap/></button><button aria-label="Устгах" title="Устгах" className="danger" onClick={()=>deleteUser(u)}><Trash2/></button></>}</td></tr>)}{!pagedUsers.length&&<tr><td colSpan="5"><div className="user-search-empty"><Search size={22}/><b>Хэрэглэгч олдсонгүй</b><span>{userDepartment!=='all'?'Энэ нэгжид тохирох хэрэглэгч одоогоор алга.':'Хайлтын үгээ өөрчилж дахин оролдоно уу.'}</span></div></td></tr>}</tbody></table></div>{filteredUsers.length>usersPerPage&&<nav className="user-pagination" aria-label="Хэрэглэгчийн хуудас"><button type="button" disabled={userPage===1} onClick={()=>setUserPage(page=>page-1)} aria-label="Өмнөх хуудас">‹</button>{Array.from({length:userPageCount},(_,index)=>index+1).map(page=><button type="button" key={page} className={page===userPage?'active':''} aria-current={page===userPage?'page':undefined} onClick={()=>setUserPage(page)}>{page}</button>)}<button type="button" disabled={userPage===userPageCount} onClick={()=>setUserPage(page=>page+1)} aria-label="Дараагийн хуудас">›</button></nav>}<p className="user-page-summary">{filteredUsers.length?`${(userPage-1)*usersPerPage+1}–${Math.min(userPage*usersPerPage,filteredUsers.length)} / ${filteredUsers.length}`:'0 хэрэглэгч'}</p></section>
@@ -293,9 +372,10 @@ function AdminPanel({ user, logout, onLearnerView, theme, toggleTheme, onUserUpd
       </main>
     </div>
     {passwordUser&&<PasswordReset user={passwordUser} request={request} onClose={()=>setPasswordUser(null)} onSaved={()=>{const self=passwordUser.id===user.id;setPasswordUser(null);if(self)logout();else setNotice('Нууц үг шинэчлэгдлээ. Хэрэглэгч шинэ нууц үгээр дахин нэвтэрнэ.')}}/>}
+    <SaveToast message={notice} onClose={()=>setNotice('')}/>
     {userDetail&&<UserDetailModal data={userDetail.data} loading={userDetail.loading} error={userDetail.error} onClose={()=>setUserDetail(null)}/>}
-    {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setProfileOpen(false);load()}}/>}
-    {showForm&&<LessonEditor lesson={editingLesson} request={request} onClose={()=>setShowForm(false)} onSaved={()=>{setShowForm(false);setEditingLesson(null);load()}} onPreview={lesson=>setPreviewLesson(lesson)}/>}
+    {profileOpen&&<ProfileEdit user={user} request={request} onClose={()=>setProfileOpen(false)} onSaved={(updated)=>{onUserUpdate(updated);setNotice('Таны мэдээллийн өөрчлөлт амжилттай хадгалагдлаа.');load()}}/>}
+    {showForm&&<LessonEditor lesson={editingLesson} request={request} onClose={()=>setShowForm(false)} onSaved={()=>{setNotice(editingLesson?'Хичээлийн өөрчлөлт амжилттай хадгалагдлаа.':'Шинэ хичээл амжилттай үүслээ.');if(!editingLesson){setShowForm(false);setEditingLesson(null)}load()}} onPreview={lesson=>setPreviewLesson(lesson)}/>}
     {showUserForm&&<div className="modal-bg"><form className="lesson-form" onSubmit={createUser}>
       <button type="button" className="modal-close" title="Хаах" aria-label="Хаах" onClick={()=>setShowUserForm(false)}><X/></button>
       <span>ХЭРЭГЛЭГЧИЙН УДИРДЛАГА</span><h2>Шинэ хэрэглэгч үүсгэх</h2>

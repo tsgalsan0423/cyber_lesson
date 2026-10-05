@@ -1,5 +1,5 @@
 import React from 'react'
-import {Award,BookOpen,CheckCircle2,Clock3,LogIn,UserRound,X} from 'lucide-react'
+import {Award,BookOpen,CheckCircle2,Clock3,Globe2,LogIn,UserRound,X} from 'lucide-react'
 import './user-detail.css'
 
 const date=value=>value?new Date(String(value).includes('T')?value:String(value).replace(' ','T')+'Z').toLocaleString('mn-MN'):'Бүртгэлгүй'
@@ -15,6 +15,7 @@ export default function UserDetailModal({data,loading,error,onClose}){
       <header className="user-detail-person"><div className="user-detail-avatar">{user.name?.[0]||'Х'}</div><div><h2>{user.surname?`${user.surname} `:''}{user.name}</h2><p>{user.department||'Нэгжгүй'} · {user.position||'Албан тушаалгүй'}</p><small>{user.email||user.username}</small></div></header>
       <div className="user-detail-kpis">
         <article><LogIn/><div><small>Сүүлийн нэвтрэлт</small><b>{date(data.last_login)}</b><span>{data.login_count} удаа нэвтэрсэн</span></div></article>
+        <article><Globe2/><div><small>Сүүлийн IP хаяг</small><b>{data.last_ip||'Бүртгэлгүй'}</b><span title={data.last_user_agent||''}>{data.last_device_id&&data.last_device_id!=='unknown'?`Төхөөрөмж: ${data.last_device_id.slice(0,12)}…`:'Төхөөрөмж тодорхойгүй'}</span></div></article>
         <article><BookOpen/><div><small>Сүүлийн үзсэн хичээл</small><b>{data.last_lesson?.title||'Одоогоор хичээл нээгээгүй'}</b><span>{date(data.last_lesson?.last_viewed_at)}</span></div></article>
         <article><CheckCircle2/><div><small>Сургалтын явц</small><b>{data.summary.completed}/{data.courses.length} хичээл</b><span>{data.summary.tested} шалгалт · Дундаж {data.summary.average===null?'—':`${data.summary.average}%`}</span></div></article>
       </div>
