@@ -52,13 +52,15 @@ export async function installNews(app, db, auth, adminOnly) {
     }
     const newsType=req.body?.news_type==='international'?'international':'organization'
     const sourceName=newsType==='international'?String(req.body?.source_name||author).trim():null
-    const values=[title.trim(),body.trim(),author.trim(),category.trim(),filename,pdf,mimeType,externalUrl||null,newsType,sourceName]
+    const publishedAt=newsType==='international'?String(req.body?.published_at||'').trim():null
+    if(newsType==='international'&&(!externalUrl||!/^\d{4}-\d{2}-\d{2}$/.test(publishedAt)||!sourceName))return res.status(400).json({message:'Гадаад мэдээнд эх сурвалж, линк, нийтэлсэн огноог бүрэн оруулна уу.'})
+    const values=[title.trim(),body.trim(),author.trim(),category.trim(),filename,pdf,mimeType,externalUrl||null,newsType,sourceName,publishedAt]
     if(existing){
-      await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,news_type=?,source_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
+      await db.run('UPDATE news SET title=?,body=?,author=?,category=?,filename=?,pdf=?,mime_type=?,external_url=?,news_type=?,source_name=?,published_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?', [...values,req.params.id])
       await createNotification(db,{type:'news_updated',title:'Мэдээ шинэчлэгдлээ',message:title.trim(),targetUrl:'#news'})
     }
     else {
-      const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url,news_type,source_name) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id', values)
+      const result=await db.run('INSERT INTO news (title,body,author,category,filename,pdf,mime_type,external_url,news_type,source_name,published_at) VALUES (?,?,?,?,?,?,?,?,?,?,?) RETURNING id', values)
       await createNotification(db,{type:'news_new',title:'Шинэ мэдээ нийтлэгдлээ',message:title.trim(),targetUrl:'#news'})
       return res.status(201).json({id:Number(result.lastInsertRowid)})
     }
