@@ -1,7 +1,16 @@
-// Verified source articles published during 2026-09-25–2026-10-05.
+// Verified source articles published during 2026-09-25–2026-10-06.
 // These entries are bundled with the app so the international section has
 // sourced Mongolian summaries even before automatic news refresh is configured.
 export const curatedInternationalNews = [
+  {
+    id: -1008,
+    title: 'Microsoft: AI эрчимжихийн хэрээр чухал системийн засварыг 24 цагийн дотор хийх шаардлага нэмэгдэж байна',
+    body: 'Microsoft-ийн мэдээлснээр AI-д суурилсан шинжилгээ нь эмзэг байдлыг олж илрүүлэх, засах үйл явцыг хурдасгаж байгаа ч хамгаалагчдын шалгах ёстой олдворын тоог мөн эрс нэмэгдүүлж байна. Байгууллагууд on-premises Microsoft системийн засварын нөөцөө нэмэгдүүлж, domain controller болон сүлжээний захын төхөөрөмж зэрэг чухал системийн засварыг дараагийн төлөвлөгөөт цонх хүртэл хүлээлгүй 24 цагийн дотор хийх боломжийг авч үзэхийг зөвлөжээ. Мөн хамгаалалтын давхар арга хэмжээ болон үндсэн хяналтуудын төлөвийг тасралтгүй шалгахыг онцолсон байна.',
+    category: 'Эрсдэлийн удирдлага',
+    source_name: 'Microsoft Security',
+    external_url: 'https://www.microsoft.com/en-us/security/blog/2026/10/06/ciso-perspectives-on-managing-vulnerability-risks-in-the-age-of-ai/',
+    published_at: '2026-10-06',
+  },
   {
     id: -1005,
     title: 'Citrix NetScaler-ийн zero-day эмзэг байдлуудаар бодит нэвтрэлтүүд гарсныг баталжээ',
