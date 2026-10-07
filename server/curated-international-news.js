@@ -1,7 +1,25 @@
-// Verified source articles published during 2026-09-25–2026-10-06.
+// Verified source articles published during 2026-09-25–2026-10-07.
 // These entries are bundled with the app so the international section has
 // sourced Mongolian summaries even before automatic news refresh is configured.
 export const curatedInternationalNews = [
+  {
+    id: -1009,
+    title: 'Cisco Nexus 3000/9000 switch-д root эрхээр код ажиллуулах ноцтой эмзэг байдал илэрчээ',
+    body: 'Cisco NX-OS-ийн MPLS OAM функцийн CVE-2026-76465 эмзэг байдал CVSS 9.8 үнэлгээтэй бөгөөд нэвтрэх эрхгүй алсын халдагч тусгайлан бэлтгэсэн MPLS echo-request илгээж root эрхээр код ажиллуулах эсвэл төхөөрөмжийг дахин ачаалж үйлчилгээ тасалдуулах боломжтой. MPLS OAM идэвхтэй Nexus 3000 болон standalone NX-OS горимтой Nexus 9000 switch нөлөөлнө. Cisco засварласан хувилбар гаргасан; шаардлагагүй бол MPLS OAM-ийг идэвхгүй болгох нь түр хамгаалалт боловч бүрэн шийдэл нь шинэчлэлт юм. Одоогоор бодит халдлагад ашигласан мэдээлэл Cisco-д байхгүй.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cisco Security Advisory',
+    external_url: 'https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-moam-rce-uBTzYV7',
+    published_at: '2026-10-07',
+  },
+  {
+    id: -1010,
+    title: 'Cisco License On-Prem-д админы нууц үгийг зөвшөөрөлгүй солих эмзэг байдал гарчээ',
+    body: 'Cisco License On-Prem буюу хуучнаар Smart Software Manager On-Prem-д хэд хэдэн ноцтой эмзэг байдал илэрсэн. CVE-2026-20328 нь нэвтрэх эрхгүй халдагчид дурын хэрэглэгч, тэр дундаа өндөр эрхтэй админы нууц үгийг солих боломж олгож болзошгүй; CVE-2026-76454 нь баталгаажуулалтгүй API хүсэлтээр системийн файл өөрчлөх эсвэл үйлчилгээг доголдуулах эрсдэлтэй. Эдгээр нь тохиргооноос үл хамааран бүтээгдэхүүнд нөлөөлөх бөгөөд тойрон гарах бүрэн арга байхгүй тул Cisco засварласан хувилбар руу шинэчлэхийг зөвлөсөн. Одоогоор бодит халдлагад ашигласан мэдээлэл нийтлээгүй байна.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cisco Security Advisory',
+    external_url: 'https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-ssm-access-nttb2dhE',
+    published_at: '2026-10-07',
+  },
   {
     id: -1008,
     title: 'Microsoft: AI эрчимжихийн хэрээр чухал системийн засварыг 24 цагийн дотор хийх шаардлага нэмэгдэж байна',
