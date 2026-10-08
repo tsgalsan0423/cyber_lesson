@@ -1,7 +1,16 @@
-// Verified source articles published during 2026-09-25–2026-10-07.
+// Verified source articles published during 2026-09-25–2026-10-08.
 // These entries are bundled with the app so the international section has
 // sourced Mongolian summaries even before automatic news refresh is configured.
 export const curatedInternationalNews = [
+  {
+    id: -1011,
+    title: 'Cisco Meraki-ийн gateway, access point, switch болон SD-WAN төхөөрөмжүүдэд ноцтой эмзэг байдлууд засагджээ',
+    body: 'Cisco Meraki-ийн дотоод аюулгүй байдлын шалгалтаар Campus Gateway, MG cellular gateway, MR wireless access point, MS switch, MV smart camera, MX Security болон SD-WAN appliance-д нөлөөлөх долоон бүлэг эмзэг байдал илэрсэн. Хамгийн өндөр үнэлгээтэй CVE-2026-76464 нь CVSS 9.6 бөгөөд санах ойн хязгаараас гадуур үйлдэл хийх төрлийн алдааг хамарна. Эдгээр эмзэг байдал нь төхөөрөмжийн тохиргооноос үл хамааран нөлөөлөх бөгөөд тойрон гарах арга байхгүй тул Cisco засварласан firmware хувилбар руу шинэчлэхийг зөвлөсөн. Одоогоор бодит халдлагад ашигласан мэдээлэл Cisco-д байхгүй.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cisco Security Advisory',
+    external_url: 'https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-hardening-meraki-os-drbEX9GH',
+    published_at: '2026-10-08',
+  },
   {
     id: -1009,
     title: 'Cisco Nexus 3000/9000 switch-д root эрхээр код ажиллуулах ноцтой эмзэг байдал илэрчээ',
