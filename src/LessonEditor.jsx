@@ -81,7 +81,10 @@ function normalize(form) {
 }
 
 function Field({label, children}) {
-  return <label>{label}{children}</label>
+  return <div className="editor-field">
+    <div className="editor-field-label">{label}</div>
+    {children}
+  </div>
 }
 
 function ArrayToolbar({onAdd, label}) {
