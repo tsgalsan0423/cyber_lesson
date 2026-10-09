@@ -1,7 +1,16 @@
-// Verified source articles published during 2026-09-25–2026-10-08.
+// Verified source articles published during 2026-09-25–2026-10-09.
 // These entries are bundled with the app so the international section has
 // sourced Mongolian summaries even before automatic news refresh is configured.
 export const curatedInternationalNews = [
+  {
+    id: -1012,
+    title: 'Veeam Backup & Replication-д SYSTEM эрхээр код ажиллуулах ноцтой эмзэг байдлыг засжээ',
+    body: 'Veeam Backup & Replication-ийн CVE-2025-64393 эмзэг байдал CVSS 4.0 үнэлгээгээр 9.4 оноо авсан. Backup Viewer эрхтэй хэрэглэгч Mount Service-ээр хүлээн авсан итгэлгүй өгөгдлийн аюултай deserialization-ийг ашиглан Veeam Backup Server дээр алсаас SYSTEM эрхээр код ажиллуулах боломжтой. Veeam Backup & Replication 12.3.2.4854 болон түүнээс өмнөх бүх 12.x хувилбар нөлөөлөх бөгөөд 12.3.2 P4 (build 12.3.2.4934)-өөс эхлэн засагдсан; 13-р хувилбар нөлөөлөхгүй. Нөлөөлсөн системийг нэн даруй шинэчлэхийг зөвлөжээ.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cyber Security Agency of Singapore / Veeam',
+    external_url: 'https://www.csa.gov.sg/alerts-and-advisories/alerts/al-2026-138/',
+    published_at: '2026-10-09',
+  },
   {
     id: -1011,
     title: 'Cisco Meraki-ийн gateway, access point, switch болон SD-WAN төхөөрөмжүүдэд ноцтой эмзэг байдлууд засагджээ',
