@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import {canResetPassword,filterProgressUsers} from '../server/org-scope.js'
 import {mergeNewsWithCurated} from '../server/curated-international-news.js'
+import {securityFoundationsCourse} from '../server/security-foundations-course.js'
 import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
@@ -93,6 +94,9 @@ const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
   const examColumns=(await env.DB.prepare('PRAGMA table_info(exam_attempts)').all()).results||[]
   if(!examColumns.some(column=>column.name==='ip_address'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN ip_address TEXT')
   if(!examColumns.some(column=>column.name==='device_id'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN device_id TEXT')
+  const course=securityFoundationsCourse
+  const added=await env.DB.prepare("INSERT INTO lessons(title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) SELECT ?,?,?,?,?,'',?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM lessons WHERE title=?)").bind(course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),course.title).run()
+  if(Number(added.meta?.changes)||0)await env.DB.prepare("INSERT INTO notifications(type,title,message,target_url) VALUES('lesson_new','Шинэ хичээл нэмэгдлээ',?,'#lessons')").bind(course.title).run()
 })())
 const all=async(env,sql,values=[])=>(await env.DB.prepare(sql).bind(...values).all()).results||[]
 const get=async(env,sql,values=[])=>await env.DB.prepare(sql).bind(...values).first()
@@ -147,7 +151,7 @@ function normalizeLessonInput(body){
   if(![lesson.title,lesson.description,lesson.duration,lesson.level,lesson.category].every(Boolean))throw new Error('Хичээлийн үндсэн мэдээллийг бүрэн бөглөнө үү.')
   if(lesson.image_url&&!lesson.image_url.startsWith('/images/topic-')&&!/^https?:\/\//i.test(lesson.image_url)&&!/^data:image\/(png|jpe?g|webp|svg\+xml);base64,/i.test(lesson.image_url))throw new Error('Зураг буруу байна.')
   if(lesson.image_url.length>2500000)throw new Error('Зураг хэт том байна.')
-  lesson.content=Array.isArray(body.content)?body.content.map(x=>({title:trimmed(x.title,160),text:trimmed(x.text,7000),task:trimmed(x.task,1000),icon:trimmed(x.icon,30)||'shield'})):[]
+  lesson.content=Array.isArray(body.content)?body.content.map(x=>({title:trimmed(x.title,160),text:trimmed(x.text,7000),task:trimmed(x.task,1000),icon:trimmed(x.icon,30)||'shield',process:learningList(x.process).slice(0,6),diagram:['information','cia'].includes(x.diagram)?x.diagram:'',tone:/^#[0-9a-f]{6}$/i.test(x.tone||'')?x.tone:'#22d3a7'})):[]
   lesson.cases=Array.isArray(body.cases)?body.cases.map(x=>({title:trimmed(x.title,160),text:trimmed(x.text,5000),explanation:trimmed(x.explanation,5000),task:trimmed(x.task,1000),icon:trimmed(x.icon,30)||'search'})):[]
   lesson.quiz=Array.isArray(body.quiz)?body.quiz.map(q=>({question:trimmed(q.question,700),options:(Array.isArray(q.options)?q.options:[]).map(x=>trimmed(x,500)).filter(Boolean),answer:Number(q.answer),explain:trimmed(q.explain,1200)})):[]
   if(!lesson.content.length||lesson.content.some(x=>!x.title||!x.text))throw new Error('Онол хэсгийг бүрэн бөглөнө үү.')

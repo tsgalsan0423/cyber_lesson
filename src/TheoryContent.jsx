@@ -14,7 +14,30 @@ export function RichText({text}) {
   })}</div>
 }
 
+function InformationDiagram() {
+  return <div className="concept-diagram information-diagram" role="img" aria-label="Өгөгдөл, утга агуулга нийлж мэдээлэл болох зураглал">
+    <div><b>25°C</b><span>Өгөгдөл</span></div><i>+</i><div><b>Өнөөдөр · Улаанбаатар</b><span>Утга агуулга</span></div><i>→</i><div className="result"><b>Өнөөдөр Улаанбаатарт 25°C</b><span>Мэдээлэл</span></div>
+  </div>
+}
+
+function CiaDiagram() {
+  return <div className="concept-diagram cia-diagram" role="img" aria-label="CIA гурвал: нууцлал, бүрэн бүтэн байдал, хүртээмж">
+    <div className="cia-center"><b>CIA</b><span>Мэдээллийн хамгаалалт</span></div>
+    <div className="cia-item confidentiality"><b>C</b><span>Нууцлал</span><small>Зөв хүн л харна</small></div>
+    <div className="cia-item integrity"><b>I</b><span>Бүрэн бүтэн</span><small>Зөв, өөрчлөгдөөгүй</small></div>
+    <div className="cia-item availability"><b>A</b><span>Хүртээмж</span><small>Хэрэгтэй үед ажиллана</small></div>
+  </div>
+}
+
+function ProcessDiagram({steps,tone}) {
+  if(!Array.isArray(steps)||!steps.length)return null
+  return <figure className="attack-process" style={{'--process-tone':tone||'#22d3a7'}} aria-label="Халдлага хэрхэн явагдах дараалал">
+    <figcaption>Халдлага хэрхэн явагддаг вэ?</figcaption>
+    <div>{steps.map((step,index)=><React.Fragment key={index}><section><b>{index+1}</b><span>{step}</span></section>{index<steps.length-1&&<i aria-hidden="true">→</i>}</React.Fragment>)}</div>
+  </figure>
+}
+
 export default function TheoryContent({ story }) {
   if (!story?.text) return null
-  return <div className="theory-outline plain-reading"><RichText text={story.text}/></div>
+  return <div className="theory-outline plain-reading"><RichText text={story.text}/>{story.diagram==='information'&&<InformationDiagram/>}{story.diagram==='cia'&&<CiaDiagram/>}<ProcessDiagram steps={story.process} tone={story.tone}/></div>
 }

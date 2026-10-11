@@ -7,6 +7,7 @@ import { createNotification,installNotifications } from './notifications.js'
 import { curriculum } from './curriculum.js'
 import { foundations } from './foundations.js'
 import { additionalCourses } from './additional-courses.js'
+import { securityFoundationsCourse } from './security-foundations-course.js'
 import { createDatabase } from './db.js'
 import { canResetPassword } from './org-scope.js'
 import bcrypt from 'bcryptjs'
@@ -191,7 +192,10 @@ function normalizeLessonInput(body) {
     title: trimmed(step.title, 160),
     text: trimmed(step.text, 7000),
     task: trimmed(step.task, 1000),
-    icon: trimmed(step.icon, 30) || 'shield'
+    icon: trimmed(step.icon, 30) || 'shield',
+    process: learningList(step.process).slice(0,6),
+    diagram: ['information','cia'].includes(step.diagram) ? step.diagram : '',
+    tone: /^#[0-9a-f]{6}$/i.test(step.tone||'') ? step.tone : '#22d3a7'
   })) : []
   if (!content.length || content.some((step) => !step.title || !step.text)) throw new Error('Онол хэсэгт дор хаяж нэг гарчиг, агуулгатай блок оруулна уу.')
 
@@ -252,6 +256,16 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', [
   if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
 }
 await installPlainLanguage(db)
+if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', ['security-foundations-v1'])) {
+  await db.transaction(async tx=>{
+    const course=securityFoundationsCourse
+    if(!await tx.get('SELECT id FROM lessons WHERE title=?',[course.title])){
+      await tx.run("INSERT INTO lessons (title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES (?,?,?,?,?,'',?,?,?,?,?,?,?)",[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary)])
+    }
+    await tx.run('INSERT INTO curriculum_migrations (version) VALUES (?)',['security-foundations-v1'])
+  })
+  if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
+}
 const existingAdmin = await db.get("SELECT id,password_hash FROM users WHERE lower(username) = lower('Galsan') OR lower(email) = lower('admin@securelab.mn')")
 if (existingAdmin) {
   if(PRODUCTION&&await bcrypt.compare('Galsan0423',existingAdmin.password_hash))throw new Error('Production эхлүүлэхийн өмнө development админы нууц үгийг солино уу.')

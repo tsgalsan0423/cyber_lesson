@@ -2,11 +2,11 @@ import React, { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Bold, BookOpen, CheckCircle2, FileQuestion, Image, List, ListChecks, Plus, Save, Trash2, X, Zap } from 'lucide-react'
 import {RichText} from './TheoryContent.jsx'
 
-const imageOptions = Array.from({length:10}, (_, index) => `/images/topic-${index + 1}.svg`)
+const imageOptions = Array.from({length:11}, (_, index) => `/images/topic-${index + 1}.svg`)
 const iconOptions = ['shield','book','search','lock','key','wifi','eye','bug','save','alert','user','settings','share','phone','spark']
 const levels = ['Анхан','Дунд','Хүнд']
 
-const newTheory = () => ({title:'', text:'', task:'', icon:'shield'})
+const newTheory = () => ({title:'', text:'', task:'', icon:'shield', processText:'', diagram:'', tone:'#22d3a7'})
 const newCase = () => ({title:'', text:'', explanation:'', task:'', icon:'search'})
 const newQuiz = () => ({question:'', options:['',''], answer:0, explain:''})
 
@@ -39,7 +39,7 @@ function toForm(lesson) {
     category: lesson?.category || '',
     accent: lesson?.accent || '#2563eb',
     image_url: lesson?.image_url || imageOptions[0],
-    content: content.length ? content.map((item) => ({title:item.title || '', text:item.text || '', task:item.task || '', icon:item.icon || 'shield'})) : [newTheory()],
+    content: content.length ? content.map((item) => ({title:item.title || '', text:item.text || '', task:item.task || '', icon:item.icon || 'shield', processText:(item.process||[]).join('\n'), diagram:item.diagram||'', tone:item.tone||'#22d3a7'})) : [newTheory()],
     cases: cases.length ? cases.map((item) => ({title:item.title || '', text:item.text || '', explanation:item.explanation || item.solution || '', task:item.task || '', icon:item.icon || 'search'})) : [newCase()],
     quiz: quiz.length ? quiz.map((item) => ({question:item.question || '', options:(item.options || ['', '']).length >= 2 ? item.options : ['', ''], answer:Number.isInteger(item.answer) ? item.answer : 0, explain:item.explain || item.explanation || ''})) : [newQuiz()]
   }
@@ -74,7 +74,7 @@ function normalize(form) {
     level: clean(form.level),
     category: clean(form.category),
     image_url: clean(form.image_url),
-    content: form.content.map((item) => ({title:clean(item.title), text:clean(item.text), task:clean(item.task), icon:item.icon || 'shield'})),
+    content: form.content.map((item) => ({title:clean(item.title), text:clean(item.text), task:clean(item.task), icon:item.icon || 'shield', process:String(item.processText||'').split('\n').map(clean).filter(Boolean).slice(0,6), diagram:item.diagram||'', tone:/^#[0-9a-f]{6}$/i.test(item.tone||'')?item.tone:'#22d3a7'})),
     cases: form.cases.map((item) => ({title:clean(item.title), text:clean(item.text), explanation:clean(item.explanation), task:clean(item.task), icon:item.icon || 'search'})),
     quiz: form.quiz.map((item) => ({question:clean(item.question), options:item.options.map(clean), answer:Number(item.answer), explain:clean(item.explain)}))
   }
@@ -144,7 +144,7 @@ function EditorPreview({tab,form}) {
       <small>{form.category||'Ангилал'} · {form.duration||'Хугацаа'}</small>
       <h3>{form.title||'Хичээлийн нэр'}</h3>
       {tab==='meta'&&<><p>{form.description||'Хичээлийн товч тайлбар энд харагдана.'}</p><div className="editor-preview-meta"><span>{form.level||'Түвшин'}</span><span>{form.duration||'Хугацаа'}</span></div><section><b>Энэ хичээлийн дараа та</b><RichText text={(objectives.length?objectives:['Хичээлийн зорилго энд харагдана.']).map(x=>'• '+x).join('\n')}/></section></>}
-      {tab==='theory'&&<div className="editor-preview-list">{form.content.map((item,index)=><section key={index}><em>ОНОЛ {index+1}</em><h4>{item.title||'Онолын гарчиг'}</h4><RichText text={item.text||'Онолын агуулга энд харагдана.'}/></section>)}</div>}
+      {tab==='theory'&&<div className="editor-preview-list">{form.content.map((item,index)=><section key={index}><em>ОНОЛ {index+1}</em><h4>{item.title||'Онолын гарчиг'}</h4><RichText text={item.text||'Онолын агуулга энд харагдана.'}/>{item.processText&&<small>Процесс: {item.processText.split('\n').filter(Boolean).join(' → ')}</small>}</section>)}</div>}
       {tab==='case'&&<div className="editor-preview-list">{form.cases.map((item,index)=><section key={index}><em>ДАДЛАГА АЖИЛ {index+1}</em><h4>{item.title||'Дадлага ажлын нэр'}</h4><RichText text={item.text||'Нөхцөл, бодит жишээ энд харагдана.'}/><details><summary>Тайлбар харах</summary><RichText text={item.explanation||'Зөв арга хэмжээний тайлбар энд харагдана.'}/></details></section>)}</div>}
       {tab==='quiz'&&<div className="editor-preview-list">{form.quiz.map((item,index)=><section key={index}><em>АСУУЛТ {index+1}</em><h4>{item.question||'Шалгалтын асуулт'}</h4><div className="editor-preview-options">{item.options.map((option,i)=><span className={Number(item.answer)===i?'correct':''} key={i}>{String.fromCharCode(65+i)}. {option||`Сонголт ${i+1}`}</span>)}</div></section>)}</div>}
     </div>
@@ -233,6 +233,8 @@ export default function LessonEditor({lesson, request, onClose, onSaved, onPrevi
           <div className="editor-card-head"><b>Онол {index + 1}</b><MoveButtons items={form.content} index={index} setItems={(updater) => setArray('content', updater)}/><button type="button" className="danger" disabled={form.content.length===1} onClick={() => removeArray('content', index)}><Trash2 size={15}/></button></div>
           <div className="form-row"><Field label="Гарчиг"><input value={item.title} onChange={(e) => updateArray('content', index, {title:e.target.value})}/></Field><Field label="Icon"><select value={item.icon} onChange={(e) => updateArray('content', index, {icon:e.target.value})}>{iconOptions.map((icon) => <option key={icon}>{icon}</option>)}</select></Field></div>
           <Field label="Онолын агуулга"><RichTextarea className="large-textarea" value={item.text} onChange={(text) => updateArray('content', index, {text})} placeholder="Гол ойлголтуудыг догол мөрөөр бичнэ. Bullet хийх бол мөр бүрийн эхэнд - тавина."/></Field>
+          <Field label="Процесс зураг (мөр бүр нэг алхам)"><textarea value={item.processText||''} onChange={(e)=>updateArray('content',index,{processText:e.target.value})} placeholder={'Эхний алхам\nДараагийн алхам\nҮр дүн'}/></Field>
+          <div className="form-row"><Field label="Тусгай зураг"><select value={item.diagram||''} onChange={(e)=>updateArray('content',index,{diagram:e.target.value})}><option value="">Байхгүй</option><option value="information">Мэдээллийн бүтэц</option><option value="cia">CIA гурвал</option></select></Field><Field label="Процессын өнгө"><input type="color" value={item.tone||'#22d3a7'} onChange={(e)=>updateArray('content',index,{tone:e.target.value})}/></Field></div>
           <Field label="Дадлага / даалгавар"><RichTextarea value={item.task} onChange={(task) => updateArray('content', index, {task})}/></Field>
         </article>)}
       </section>}

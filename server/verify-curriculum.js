@@ -42,7 +42,7 @@ try {
   const validAdminToken=token;token=token.slice(0,-1)+(token.endsWith('a')?'b':'a')
   assert.equal((await call('/lessons')).status,401);token=validAdminToken
   let lessons=await (await call('/lessons')).json()
-  assert.equal(lessons.length,10)
+  assert.equal(lessons.length,11)
   for(const lesson of lessons){
     assert.ok(lesson.objectives.length>0)
     assert.ok(lesson.summary.length>=3)
@@ -51,8 +51,8 @@ try {
     const shuffled=randomQuiz(lesson.quiz),displayed=shuffled.map(()=>0)
     assert.equal(originalAnswers(shuffled,displayed).length,lesson.quiz.length)
   }
-  for(const lesson of lessons){assert.equal(lesson.content.length,6);assert.equal(lesson.quiz.length,4)}
-  for(const lesson of lessons.slice(6)){
+  for(const lesson of lessons.slice(0,10)){assert.equal(lesson.content.length,6);assert.equal(lesson.quiz.length,4)}
+  for(const lesson of lessons.slice(6,10)){
     assert.equal(lesson.content.filter(s=>s.example&&s.task).length,5)
     assert.ok(lesson.image_url.startsWith('/images/topic-'))
     const correct=plainLessons.find(l=>l.id===lesson.id).quiz.map(q=>q.answer)
