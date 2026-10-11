@@ -256,7 +256,7 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', [
   if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
 }
 await installPlainLanguage(db)
-if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', ['security-foundations-split-v2'])) {
+if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', ['security-foundations-split-v3'])) {
   await db.transaction(async tx=>{
     for(const [index,course] of securityFoundationCourses.entries()){
       const existing=index===0
@@ -266,7 +266,7 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', [
       if(existing)await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",[...values,existing.id])
       else await tx.run("INSERT INTO lessons (title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES (?,?,?,?,?,'',?,?,?,?,?,?,?)",values)
     }
-    await tx.run('INSERT INTO curriculum_migrations (version) VALUES (?)',['security-foundations-split-v2'])
+    await tx.run('INSERT INTO curriculum_migrations (version) VALUES (?)',['security-foundations-split-v3'])
   })
   if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
 }

@@ -170,7 +170,7 @@ const attackCourse=definition=>{
   return{
     title:definition.title,
     description:definition.description,
-    duration:'18–22 мин',level:'Анхан',category:definition.category,accent:source.tone||'#2563eb',image_url:'/images/topic-11.svg',
+    duration:'18–22 мин',level:'Анхан',category:definition.category,accent:source.tone||'#2563eb',image_url:`/images/topic-${definition.index+10}.svg`,
     objectives:[`${definition.title.split(' — ')[0]} халдлагыг энгийн жишээгээр тайлбарлах.`, 'Халдлага хэрхэн эхэлж, ямар дарааллаар нөлөөлдгийг таних.', 'Сэжигтэй үед хийх зөв эхний алхмыг сонгох.'],
     summary:[points[0],points[2],points[3]],
     content:[

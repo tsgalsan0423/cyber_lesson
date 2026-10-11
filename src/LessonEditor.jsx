@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Bold, BookOpen, CheckCircle2, FileQuestion, Image, List, ListChecks, Plus, Save, Trash2, X, Zap } from 'lucide-react'
 import {RichText} from './TheoryContent.jsx'
 
-const imageOptions = Array.from({length:11}, (_, index) => `/images/topic-${index + 1}.svg`)
+const imageOptions = Array.from({length:19}, (_, index) => `/images/topic-${index + 1}.svg`)
 const iconOptions = ['shield','book','search','lock','key','wifi','eye','bug','save','alert','user','settings','share','phone','spark']
 const levels = ['Анхан','Дунд','Хүнд']
 
