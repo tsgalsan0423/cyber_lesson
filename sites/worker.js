@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import {canResetPassword,filterProgressUsers} from '../server/org-scope.js'
 import {mergeNewsWithCurated} from '../server/curated-international-news.js'
-import {securityFoundationsCourse} from '../server/security-foundations-course.js'
+import {combinedSecurityCourseTitle,securityFoundationCourses} from '../server/security-foundations-course.js'
 import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
@@ -94,9 +94,16 @@ const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
   const examColumns=(await env.DB.prepare('PRAGMA table_info(exam_attempts)').all()).results||[]
   if(!examColumns.some(column=>column.name==='ip_address'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN ip_address TEXT')
   if(!examColumns.some(column=>column.name==='device_id'))await env.DB.exec('ALTER TABLE exam_attempts ADD COLUMN device_id TEXT')
-  const course=securityFoundationsCourse
-  const added=await env.DB.prepare("INSERT INTO lessons(title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) SELECT ?,?,?,?,?,'',?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM lessons WHERE title=?)").bind(course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),course.title).run()
-  if(Number(added.meta?.changes)||0)await env.DB.prepare("INSERT INTO notifications(type,title,message,target_url) VALUES('lesson_new','Шинэ хичээл нэмэгдлээ',?,'#lessons')").bind(course.title).run()
+  let addedCount=0
+  for(const [index,course] of securityFoundationCourses.entries()){
+    const existing=index===0
+      ?await env.DB.prepare('SELECT id FROM lessons WHERE title=? OR title=? ORDER BY id LIMIT 1').bind(combinedSecurityCourseTitle,course.title).first()
+      :await env.DB.prepare('SELECT id FROM lessons WHERE title=?').bind(course.title).first()
+    const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary)]
+    if(existing)await env.DB.prepare("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?").bind(...values,existing.id).run()
+    else{await env.DB.prepare("INSERT INTO lessons(title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES(?,?,?,?,?,'',?,?,?,?,?,?,?)").bind(...values).run();addedCount++}
+  }
+  if(addedCount)await env.DB.prepare("INSERT INTO notifications(type,title,message,target_url) VALUES('lesson_new','Шинэ хичээлүүд нэмэгдлээ',?,'#lessons')").bind(`CIA болон кибер халдлагын ${securityFoundationCourses.length} тусдаа хичээл`).run()
 })())
 const all=async(env,sql,values=[])=>(await env.DB.prepare(sql).bind(...values).all()).results||[]
 const get=async(env,sql,values=[])=>await env.DB.prepare(sql).bind(...values).first()

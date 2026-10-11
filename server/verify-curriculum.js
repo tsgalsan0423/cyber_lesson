@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { curriculum } from './curriculum.js'
 import {plainLessons} from './plain-language.js'
+import {securityFoundationCourses} from './security-foundations-course.js'
 import {randomQuiz,originalAnswers} from '../src/quizOrder.js'
 
 const directory = mkdtempSync(path.join(tmpdir(), 'securelab-check-'))
@@ -42,7 +43,9 @@ try {
   const validAdminToken=token;token=token.slice(0,-1)+(token.endsWith('a')?'b':'a')
   assert.equal((await call('/lessons')).status,401);token=validAdminToken
   let lessons=await (await call('/lessons')).json()
-  assert.equal(lessons.length,11)
+  assert.equal(lessons.length,19)
+  assert.equal(securityFoundationCourses.length,9)
+  assert.equal(securityFoundationCourses.slice(1).filter(course=>course.content.some(item=>item.process?.length===4)).length,8)
   for(const lesson of lessons){
     assert.ok(lesson.objectives.length>0)
     assert.ok(lesson.summary.length>=3)
