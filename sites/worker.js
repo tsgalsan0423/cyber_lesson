@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import {canResetPassword,filterProgressUsers} from '../server/org-scope.js'
 import {mergeNewsWithCurated} from '../server/curated-international-news.js'
-import {combinedSecurityCourseTitle,securityFoundationCourses} from '../server/security-foundations-course.js'
+import {combinedSecurityCourseTitle,consolidatedSecurityCourses,securityFoundationCourses} from '../server/security-foundations-course.js'
 import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
@@ -102,6 +102,18 @@ const ensureSchema=env=>schemaPromise||(schemaPromise=(async()=>{
     const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary)]
     if(existing)await env.DB.prepare("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?").bind(...values,existing.id).run()
     else{await env.DB.prepare("INSERT INTO lessons(title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES(?,?,?,?,?,'',?,?,?,?,?,?,?)").bind(...values).run();addedCount++}
+  }
+  for(const {targetId,sourceTitle,course} of consolidatedSecurityCourses){
+    const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),targetId]
+    await env.DB.prepare("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?").bind(...values).run()
+    const duplicate=await env.DB.prepare('SELECT id FROM lessons WHERE title=? AND id<>?').bind(sourceTitle,targetId).first()
+    if(!duplicate)continue
+    await env.DB.prepare(`INSERT INTO progress(user_id,lesson_id,completed,updated_at) SELECT user_id,?,completed,updated_at FROM progress WHERE lesson_id=? ON CONFLICT(user_id,lesson_id) DO UPDATE SET completed=max(progress.completed,excluded.completed),updated_at=max(progress.updated_at,excluded.updated_at)`).bind(targetId,duplicate.id).run()
+    await env.DB.prepare('DELETE FROM progress WHERE lesson_id=?').bind(duplicate.id).run()
+    await env.DB.prepare(`INSERT INTO lesson_views(user_id,lesson_id,first_viewed_at,last_viewed_at,opens) SELECT user_id,?,first_viewed_at,last_viewed_at,opens FROM lesson_views WHERE lesson_id=? ON CONFLICT(user_id,lesson_id) DO UPDATE SET first_viewed_at=min(lesson_views.first_viewed_at,excluded.first_viewed_at),last_viewed_at=max(lesson_views.last_viewed_at,excluded.last_viewed_at),opens=lesson_views.opens+excluded.opens`).bind(targetId,duplicate.id).run()
+    await env.DB.prepare('DELETE FROM lesson_views WHERE lesson_id=?').bind(duplicate.id).run()
+    await env.DB.prepare('UPDATE exam_attempts SET lesson_id=? WHERE lesson_id=?').bind(targetId,duplicate.id).run()
+    await env.DB.prepare('DELETE FROM lessons WHERE id=?').bind(duplicate.id).run()
   }
   if(addedCount)await env.DB.prepare("INSERT INTO notifications(type,title,message,target_url) VALUES('lesson_new','Шинэ хичээлүүд нэмэгдлээ',?,'#lessons')").bind(`CIA болон кибер халдлагын ${securityFoundationCourses.length} тусдаа хичээл`).run()
 })())

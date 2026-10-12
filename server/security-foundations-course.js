@@ -1,3 +1,5 @@
+import {plainLessons} from './plain-language.js'
+
 const section=(title,points,{icon='shield',diagram='',process=[],tone='#22d3a7'}={})=>({
   title,
   text:points.map(point=>`- ${point}`).join('\n'),
@@ -193,5 +195,37 @@ const attackCourse=definition=>{
 }
 
 export const attackCourses=attackDefinitions.map(attackCourse)
-export const securityFoundationCourses=[informationSecurityCourse,...attackCourses]
+const duplicateAttackTitles=new Set([
+  'Phishing — хуурамч хүсэлт',
+  'Ransomware — файл түгжих халдлага',
+  'Man-in-the-Middle — дундаас нь сонсох'
+])
+
+const mergeWithExistingLesson=(targetId,sourceTitle,title,description)=>{
+  const base=plainLessons.find(lesson=>lesson.id===targetId)
+  const attack=attackCourses.find(course=>course.title===sourceTitle)
+  const process=attack.content.find(item=>item.process?.length)?.process||[]
+  return{
+    targetId,
+    sourceTitle,
+    course:{
+      ...base,
+      title,
+      description,
+      duration:'25–30 мин',
+      level:'Анхан',
+      accent:attack.accent,
+      image_url:attack.image_url,
+      content:base.content.map((item,index)=>index===0?{...item,process,tone:attack.accent}:item)
+    }
+  }
+}
+
+export const consolidatedSecurityCourses=[
+  mergeWithExistingLesson(1,'Phishing — хуурамч хүсэлт','Phishing — хуурамч имэйл, мессежийг таних','Хуурамч хүсэлт хэрхэн явагддагийг ойлгож, яаруулсан мессеж, сэжигтэй холбоос, нууц мэдээлэл нэхсэн үйлдлийг зөв шалгана.'),
+  mergeWithExistingLesson(3,'Man-in-the-Middle — дундаас нь сонсох','Man-in-the-Middle — нийтийн Wi-Fi ба дундаас нь сонсох','Хуурамч эсвэл хамгаалалтгүй Wi-Fi ашиглан дамжиж буй мэдээллийг харах, өөрчлөх эрсдэл болон аюулгүй холболтын дадлыг ойлгоно.'),
+  mergeWithExistingLesson(4,'Ransomware — файл түгжих халдлага','Ransomware — файл түгжиж мөнгө нэхэх халдлага','Файл түгжиж мөнгө нэхэх халдлагын явц, шинж тэмдэг, тархалтыг хязгаарлах болон мэдээлэх зөв алхмыг ойлгоно.')
+]
+
+export const securityFoundationCourses=[informationSecurityCourse,...attackCourses.filter(course=>!duplicateAttackTitles.has(course.title))]
 

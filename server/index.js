@@ -7,7 +7,7 @@ import { createNotification,installNotifications } from './notifications.js'
 import { curriculum } from './curriculum.js'
 import { foundations } from './foundations.js'
 import { additionalCourses } from './additional-courses.js'
-import { combinedSecurityCourseTitle, securityFoundationCourses } from './security-foundations-course.js'
+import { combinedSecurityCourseTitle, consolidatedSecurityCourses, securityFoundationCourses } from './security-foundations-course.js'
 import { createDatabase } from './db.js'
 import { canResetPassword } from './org-scope.js'
 import bcrypt from 'bcryptjs'
@@ -266,6 +266,10 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', [
       if(existing)await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",[...values,existing.id])
       else await tx.run("INSERT INTO lessons (title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES (?,?,?,?,?,'',?,?,?,?,?,?,?)",values)
     }
+    for(const {targetId,course} of consolidatedSecurityCourses){
+      const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),targetId]
+      await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",values)
+    }
     await tx.run('INSERT INTO curriculum_migrations (version) VALUES (?)',['security-foundations-split-v3'])
   })
   if (db.dialect === 'postgres') await db.exec("SELECT setval(pg_get_serial_sequence('lessons','id'), (SELECT COALESCE(MAX(id), 1) FROM lessons), true)")
@@ -377,6 +381,31 @@ if (db.dialect === 'postgres') {
 }
 await installAudit(app, db, auth, adminOnly)
 await installAnalytics(app, db, auth, adminOnly)
+if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?',['security-foundations-deduplicated-v4'])) {
+  await db.transaction(async tx=>{
+    for(const {targetId,sourceTitle,course} of consolidatedSecurityCourses){
+      const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),targetId]
+      await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",values)
+      const duplicate=await tx.get('SELECT id FROM lessons WHERE title=? AND id<>?',[sourceTitle,targetId])
+      if(!duplicate)continue
+      for(const source of await tx.all('SELECT * FROM progress WHERE lesson_id=?',[duplicate.id])){
+        const target=await tx.get('SELECT * FROM progress WHERE user_id=? AND lesson_id=?',[source.user_id,targetId])
+        if(target)await tx.run('UPDATE progress SET completed=?,updated_at=? WHERE user_id=? AND lesson_id=?',[Math.max(Number(target.completed)||0,Number(source.completed)||0),String(target.updated_at)>String(source.updated_at)?target.updated_at:source.updated_at,source.user_id,targetId])
+        else await tx.run('INSERT INTO progress(user_id,lesson_id,completed,updated_at) VALUES(?,?,?,?)',[source.user_id,targetId,source.completed,source.updated_at])
+      }
+      await tx.run('DELETE FROM progress WHERE lesson_id=?',[duplicate.id])
+      for(const source of await tx.all('SELECT * FROM lesson_views WHERE lesson_id=?',[duplicate.id])){
+        const target=await tx.get('SELECT * FROM lesson_views WHERE user_id=? AND lesson_id=?',[source.user_id,targetId])
+        if(target)await tx.run('UPDATE lesson_views SET first_viewed_at=?,last_viewed_at=?,opens=? WHERE user_id=? AND lesson_id=?',[String(target.first_viewed_at)<String(source.first_viewed_at)?target.first_viewed_at:source.first_viewed_at,String(target.last_viewed_at)>String(source.last_viewed_at)?target.last_viewed_at:source.last_viewed_at,(Number(target.opens)||0)+(Number(source.opens)||0),source.user_id,targetId])
+        else await tx.run('INSERT INTO lesson_views(user_id,lesson_id,first_viewed_at,last_viewed_at,opens) VALUES(?,?,?,?,?)',[source.user_id,targetId,source.first_viewed_at,source.last_viewed_at,source.opens])
+      }
+      await tx.run('DELETE FROM lesson_views WHERE lesson_id=?',[duplicate.id])
+      await tx.run('UPDATE exam_attempts SET lesson_id=? WHERE lesson_id=?',[targetId,duplicate.id])
+      await tx.run('DELETE FROM lessons WHERE id=?',[duplicate.id])
+    }
+    await tx.run('INSERT INTO curriculum_migrations(version) VALUES(?)',['security-foundations-deduplicated-v4'])
+  })
+}
 for(const [table,columns] of Object.entries({
   login_events:{ip_address:'TEXT',device_id:'TEXT',user_agent:'TEXT'},
   exam_attempts:{ip_address:'TEXT',device_id:'TEXT'}
