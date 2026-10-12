@@ -1,7 +1,7 @@
 import React,{useEffect,useState} from 'react'
 export function ReportActions({users}) {
   const exportCsv=()=>{
-    const rows=[['Хэрэглэгч','Username','Хичээл','Нээсэн','Оролдлого','Сүүлийн оноо','Шилдэг оноо','Тэнцсэн'],...users.flatMap(u=>u.courses.map(c=>[u.name,u.username,c.title,c.opened?'Тийм':'Үгүй',c.attempts,c.last_score??'',c.best_score??'',c.completed?'Тийм':'Үгүй']))]
+    const rows=[['Хэрэглэгч','Нэвтрэх нэр','Хичээл','Нээсэн','Оролдлого','Сүүлийн оноо','Шилдэг оноо','Тэнцсэн'],...users.flatMap(u=>u.courses.map(c=>[u.name,u.username,c.title,c.opened?'Тийм':'Үгүй',c.attempts,c.last_score??'',c.best_score??'',c.completed?'Тийм':'Үгүй']))]
     const cell=value=>'"'+String(value).replace(/^[=+@\-\t\r]/,"'$&").replaceAll('"','""')+'"'
     const url=URL.createObjectURL(new Blob(['\ufeff'+rows.map(row=>row.map(cell).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}))
     const a=document.createElement('a');a.href=url;a.download='training-progress.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)

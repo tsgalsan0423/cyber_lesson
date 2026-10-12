@@ -1,9 +1,10 @@
 import {canResetPassword,filterProgressUsers} from './org-scope.js'
+import {sortLessons} from './lesson-order.js'
 
 async function loadProgressReports(db){
   const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role
     FROM users u ORDER BY u.name,u.id`)
-  const lessons=await db.all('SELECT id,title FROM lessons ORDER BY id')
+  const lessons=sortLessons(await db.all('SELECT id,title FROM lessons ORDER BY id'))
   const views=await db.all('SELECT * FROM lesson_views')
   const attempts=await db.all('SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC')
   const completions=await db.all('SELECT user_id,lesson_id FROM progress WHERE completed=1')
@@ -73,7 +74,7 @@ export async function installAnalytics(app, db, auth, adminOnly) {
       (SELECT count(*) FROM login_events WHERE user_id=u.id) logins,
       (SELECT max(created_at) FROM login_events WHERE user_id=u.id) last_login
       FROM users u ORDER BY u.name,u.id`)
-    const lessons=await db.all('SELECT id,title FROM lessons ORDER BY id')
+    const lessons=sortLessons(await db.all('SELECT id,title FROM lessons ORDER BY id'))
     const views=await db.all('SELECT * FROM lesson_views')
     const attempts=await db.all('SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC')
     const completions=await db.all('SELECT user_id,lesson_id FROM progress WHERE completed=1')

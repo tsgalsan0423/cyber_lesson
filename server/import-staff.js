@@ -52,5 +52,5 @@ try{
       await db.run("INSERT INTO users (name,surname,department,position,phone,username,email,password_hash,role,must_change_password) VALUES (?,?,?,?,?,?,?,?, 'student',1)",[item.name,item.surname,item.department,item.position,item.phone,item.email,item.email,await bcrypt.hash(item.phone,12)]);inserted++
     }
   }
-  console.log(`Импорт дууслаа: ${inserted} шинэ, ${updated} шинэчилсэн, ${emailMigrated} и-мэйл шилжүүлсэн${resetPasswords?`, ${passwordsReset} нууц үг шинэчилсэн`:''}.`)
+  console.log(`Импорт дууслаа: ${inserted} шинэ, ${updated} шинэчилсэн, ${emailMigrated} цахим шуудангийн хаяг шилжүүлсэн${resetPasswords?`, ${passwordsReset} нууц үг шинэчилсэн`:''}.`)
 }finally{await db.close()}

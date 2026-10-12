@@ -44,6 +44,7 @@ try {
   assert.equal((await call('/lessons')).status,401);token=validAdminToken
   let lessons=await (await call('/lessons')).json()
   assert.equal(lessons.length,16)
+  assert.equal(lessons[0].title,'Мэдээллийн аюулгүй байдал ба CIA гурвал')
   assert.equal(securityFoundationCourses.length+consolidatedSecurityCourses.length,9)
   assert.equal([...securityFoundationCourses.slice(1),...consolidatedSecurityCourses.map(item=>item.course)].filter(course=>course.content.some(item=>item.process?.length===4)).length,8)
   for(const lesson of lessons){
@@ -54,8 +55,8 @@ try {
     const shuffled=randomQuiz(lesson.quiz),displayed=shuffled.map(()=>0)
     assert.equal(originalAnswers(shuffled,displayed).length,lesson.quiz.length)
   }
-  for(const lesson of lessons.slice(0,10)){assert.equal(lesson.content.length,6);assert.equal(lesson.quiz.length,4)}
-  for(const lesson of lessons.slice(6,10)){
+  for(const lesson of lessons.filter(lesson=>lesson.id<=10)){assert.equal(lesson.content.length,6);assert.equal(lesson.quiz.length,4)}
+  for(const lesson of lessons.filter(lesson=>[7,8,9,10].includes(lesson.id))){
     assert.equal(lesson.content.filter(s=>s.example&&s.task).length,5)
     assert.ok(lesson.image_url.startsWith('/images/topic-'))
     const correct=plainLessons.find(l=>l.id===lesson.id).quiz.map(q=>q.answer)
@@ -73,9 +74,10 @@ try {
   progressResult=await (await call('/lessons/1/progress',{answers})).json();assert.equal(progressResult.score,100);assert.equal(progressResult.completed,true);assert.equal(progressResult.review.length,4)
   await call('/lessons/1/progress',{answers:wrong})
   lessons=await (await call('/lessons')).json()
-  assert.equal(lessons[0].completed,1,'A failed retry must not erase completion')
-  assert.equal(lessons[0].last_score,0)
-  assert.equal(lessons[0].attempts,5)
+  const firstLesson=lessons.find(lesson=>lesson.id===1)
+  assert.equal(firstLesson.completed,1,'A failed retry must not erase completion')
+  assert.equal(firstLesson.last_score,0)
+  assert.equal(firstLesson.attempts,5)
   assert.equal((await call('/lessons/9999/progress',{answers})).status,404)
   const adminToken=token
   assert.equal((await call('/admin/users',{name:'Weak Password',username:'weak-password',email:'weak@example.test',password:'password'})).status,400)
@@ -106,13 +108,14 @@ try {
   const learner=report.users.find(u=>u.username==='dashboard@example.test')
   assert.equal(learner.viewed,2)
   assert.equal(learner.average,100)
-  assert.equal(learner.courses[0].opens,2)
-  assert.equal(learner.courses[0].last_score,100)
-  assert.equal(learner.courses[0].history.length,2)
+  const learnerFirstCourse=learner.courses.find(course=>course.id===1)
+  assert.equal(learnerFirstCourse.opens,2)
+  assert.equal(learnerFirstCourse.last_score,100)
+  assert.equal(learnerFirstCourse.history.length,2)
   const detail=await (await call('/admin/users/'+learner.id+'/details')).json()
   assert.equal(detail.login_count,1)
-  assert.ok([lessons[0].title,lessons[1].title].includes(detail.last_lesson.title))
-  assert.equal(detail.courses[0].opens,2)
+  assert.ok([lessons.find(lesson=>lesson.id===1).title,lessons.find(lesson=>lesson.id===2).title].includes(detail.last_lesson.title))
+  assert.equal(detail.courses.find(course=>course.id===1).opens,2)
   assert.equal(detail.summary.viewed,2)
   console.log('PASS: dashboard totals, student isolation, unique views, login count, history and admin authorization')
   assert.equal((await call('/admin/users/'+learner.id+'/password',{password:'short'})).status,400)

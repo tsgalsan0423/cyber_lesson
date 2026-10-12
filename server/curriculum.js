@@ -1,7 +1,9 @@
+import {naturalizeLessonText} from './plain-language.js'
+
 // Each module contains reading, a concrete example and a practical task.
 const step = (title, text, example, task, icon='shield') => ({title,text,example,task,icon})
 const question = (question, options, answer, explain) => ({question,options,answer,explain})
-export const curriculum = {
+export const curriculum = naturalizeLessonText({
   1: {
     steps: [
       step('Фишинг яагаад ажилладаг вэ?', 'Фишинг бол хүний итгэл, айдас, сониуч занг ашиглан мэдээлэл эсвэл мөнгө авах оролдлого юм. Халдагч заавал програм эвдэхгүй: таныг өөрөөр тань нууц үг оруулуулах, төлбөр шилжүүлэх, файл нээлгэхийг зорьдог. Имэйлээс гадна SMS, чат, утасны дуудлага, QR кодоор ирж болно.', 'Захирлын нэртэй чат “яаралтай төлбөр шилжүүл” гэж бичжээ. Нэр, зураг танил байсан ч тухайн бүртгэл алдагдсан байж болно.', 'Сүүлд хүлээн авсан нэг хүсэлтийг бод. Хэн явуулсан, юу шаардаж байгаа, яагаад яаруулж байгааг тодорхойл.', 'mail'),
@@ -92,4 +94,4 @@ export const curriculum = {
       question('Инцидентийн дараах хэлэлцүүлгийн зорилго?', ['Хэн нэгнийг буруутгах','Шалтгаан, хяналт, хариу ажиллагааг сайжруулах','Мэдээлсэн хүнийг шийтгэх'],1,'Суралцаж сайжруулах соёл нь эрт мэдээлэх дадлыг дэмжинэ.')
     ]
   }
-}
+})

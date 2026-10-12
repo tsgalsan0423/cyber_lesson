@@ -10,6 +10,8 @@ import { additionalCourses } from './additional-courses.js'
 import { combinedSecurityCourseTitle, consolidatedSecurityCourses, securityFoundationCourses } from './security-foundations-course.js'
 import { createDatabase } from './db.js'
 import { canResetPassword } from './org-scope.js'
+import { sortLessons } from './lesson-order.js'
+import { plainLessons } from './plain-language.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import path from 'node:path'
@@ -226,7 +228,7 @@ function normalizeLessonInput(body) {
 }
 
 const lessons = [
-  [1, 'Фишинг халдлагыг таних нь', 'Хуурамч имэйл, холбоос болон яаралтай үйлдэл шаардах мессежийг хэрхэн таних вэ?', '08:24', 'Анхан', 'Сошиал инженерчлэл', 'https://www.youtube.com/embed/XBkzBrXlle0', '#8b5cf6'],
+  [1, 'Хуурамч цахим шуудан, зурвасыг таних', 'Хуурамч цахим шуудан, холбоос болон яаралтай үйлдэл шаардах зурвасыг хэрхэн таних вэ?', '08:24', 'Анхан', 'Хуурамч хүсэлтээс сэргийлэх', 'https://www.youtube.com/embed/XBkzBrXlle0', '#8b5cf6'],
   [2, 'Хүчирхэг нууц үг ба MFA', 'Нууц үгийн зөв дадал, password manager болон олон шатлалт баталгаажуулалт.', '11:10', 'Анхан', 'Бүртгэл хамгаалалт', 'https://www.youtube.com/embed/3NjQ9b3pgIg', '#22d3a7'],
   [3, 'Нийтийн Wi-Fi-ийн эрсдэл', 'Нээлттэй сүлжээнд мэдээллээ алдахгүй байхад VPN ба HTTPS хэрхэн тусалдаг вэ?', '09:45', 'Дунд', 'Сүлжээний аюулгүй байдал', 'https://www.youtube.com/embed/Dk-ZqQ-bfy4', '#38bdf8'],
   [4, 'Ransomware-ээс сэргийлэх нь', 'Хорт програм хэрхэн тархдаг, backup яагаад хэрэгтэй, халдлагын үед юу хийх вэ?', '13:32', 'Дунд', 'Хортой програм', 'https://www.youtube.com/embed/8zO7bH9mQ5Y', '#fb7185'],
@@ -259,9 +261,7 @@ await installPlainLanguage(db)
 if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?', ['security-foundations-split-v3'])) {
   await db.transaction(async tx=>{
     for(const [index,course] of securityFoundationCourses.entries()){
-      const existing=index===0
-        ?await tx.get('SELECT id FROM lessons WHERE title=? OR title=? ORDER BY id LIMIT 1',[combinedSecurityCourseTitle,course.title])
-        :await tx.get('SELECT id FROM lessons WHERE title=?',[course.title])
+      const existing=await tx.get('SELECT id FROM lessons WHERE title=? OR title=? OR title=? ORDER BY id LIMIT 1',[course.title,course.legacyTitle||course.title,index===0?combinedSecurityCourseTitle:course.title])
       const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary)]
       if(existing)await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",[...values,existing.id])
       else await tx.run("INSERT INTO lessons (title,description,duration,level,category,video_url,accent,content_json,cases_json,quiz_json,image_url,objectives_json,summary_json) VALUES (?,?,?,?,?,'',?,?,?,?,?,?,?)",values)
@@ -406,6 +406,24 @@ if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?',['
     await tx.run('INSERT INTO curriculum_migrations(version) VALUES(?)',['security-foundations-deduplicated-v4'])
   })
 }
+if (!await db.get('SELECT version FROM curriculum_migrations WHERE version=?',['lesson-government-wording-v6'])) {
+  await db.transaction(async tx=>{
+    for(const [index,course] of securityFoundationCourses.entries()){
+      const existing=await tx.get('SELECT id FROM lessons WHERE title=? OR title=? OR title=? ORDER BY id LIMIT 1',[course.title,course.legacyTitle||course.title,index===0?combinedSecurityCourseTitle:course.title])
+      if(!existing)continue
+      const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),existing.id]
+      await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",values)
+    }
+    for(const course of plainLessons){
+      await tx.run('UPDATE lessons SET title=?,description=?,category=?,content_json=?,cases_json=?,quiz_json=?,objectives_json=?,summary_json=? WHERE id=?',[course.title,course.description,course.category,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),JSON.stringify(course.objectives),JSON.stringify(course.summary),course.id])
+    }
+    for(const {targetId,course} of consolidatedSecurityCourses){
+      const values=[course.title,course.description,course.duration,course.level,course.category,course.accent,JSON.stringify(course.content),JSON.stringify(course.cases),JSON.stringify(course.quiz),course.image_url,JSON.stringify(course.objectives),JSON.stringify(course.summary),targetId]
+      await tx.run("UPDATE lessons SET title=?,description=?,duration=?,level=?,category=?,video_url='',accent=?,content_json=?,cases_json=?,quiz_json=?,image_url=?,objectives_json=?,summary_json=? WHERE id=?",values)
+    }
+    await tx.run('INSERT INTO curriculum_migrations(version) VALUES(?)',['lesson-government-wording-v6'])
+  })
+}
 for(const [table,columns] of Object.entries({
   login_events:{ip_address:'TEXT',device_id:'TEXT',user_agent:'TEXT'},
   exam_attempts:{ip_address:'TEXT',device_id:'TEXT'}
@@ -440,9 +458,9 @@ app.patch('/api/auth/profile',auth,async(req,res)=>{
   const email=String(req.body?.email||'').trim().toLowerCase()
   const surname=String(req.body?.surname||'').trim()
   if(!name||!email||name.length>120||surname.length>120||email.length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
-    return res.status(400).json({message:'Нэр болон зөв и-мэйл хаяг оруулна уу.'})
+    return res.status(400).json({message:'Нэр болон зөв цахим шуудан хаяг оруулна уу.'})
   const duplicate=await db.get('SELECT id FROM users WHERE id<>? AND (lower(username)=lower(?) OR lower(email)=lower(?))', [req.user.id,email,email])
-  if(duplicate) return res.status(409).json({message:'И-мэйл өөр хэрэглэгч дээр бүртгэлтэй байна.'})
+  if(duplicate) return res.status(409).json({message:'Цахим шуудан өөр хэрэглэгч дээр бүртгэлтэй байна.'})
   const result=await db.run('UPDATE users SET name=?,surname=?,username=?,email=? WHERE id=?', [name,surname,email,email,req.user.id])
   if(!result.changes) return res.status(404).json({message:'Хэрэглэгч олдсонгүй.'})
   const user=await db.get('SELECT id,name,email,username,role,session_version,surname,department,position,phone,must_change_password FROM users WHERE id=?', [req.user.id])
@@ -486,14 +504,14 @@ app.get('/api/admin/users/:id/details',auth,adminOnly,async(req,res)=>{
     (SELECT max(score) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) best_score,
     (SELECT count(*) FROM progress WHERE user_id=? AND lesson_id=l.id AND completed=1) completed
     FROM lessons l ORDER BY l.id`,[account.id,account.id,account.id,account.id,account.id,account.id])
-  const normalized=courses.map(course=>({...course,opens:Number(course.opens)||0,attempts:Number(course.attempts)||0,completed:Number(course.completed)>0}))
+  const normalized=sortLessons(courses).map(course=>({...course,opens:Number(course.opens)||0,attempts:Number(course.attempts)||0,completed:Number(course.completed)>0}))
   const scores=normalized.filter(course=>course.last_score!==null).map(course=>Number(course.last_score))
   res.json({user:account,last_login:login?.last_login||null,login_count:Number(login?.login_count)||0,last_ip:lastConnection?.ip_address||null,last_device_id:lastConnection?.device_id||null,last_user_agent:lastConnection?.user_agent||null,
     last_lesson:lastLesson||null,summary:{viewed:normalized.filter(course=>course.opens>0).length,tested:normalized.filter(course=>course.attempts>0).length,
       completed:normalized.filter(course=>course.completed).length,average:scores.length?Math.round(scores.reduce((sum,score)=>sum+score,0)/scores.length):null},courses:normalized})
 })
 app.get('/api/lessons', auth, async (req, res) => {
-  const rows = await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? ORDER BY l.id`, [req.user.id, req.user.id, req.user.id])
+  const rows = sortLessons(await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? ORDER BY l.id`, [req.user.id, req.user.id, req.user.id]))
   res.json(rows.map(row=>{const lesson=lessonPayload(row);const {quiz_json,content_json,cases_json,objectives_json,summary_json,...safe}=lesson;return {...safe,quiz:lesson.quiz.map(({question,options})=>({question,options}))}}))
 })
 
@@ -522,7 +540,7 @@ app.get('/api/admin/overview', auth, adminOnly, async (req, res) => {
     lessons: Number((await db.get('SELECT count(*) count FROM lessons')).count),
     completions: Number((await db.get('SELECT count(*) count FROM progress WHERE completed=1')).count)
   }
-  const lessons = await db.all('SELECT * FROM lessons ORDER BY id')
+  const lessons = sortLessons(await db.all('SELECT * FROM lessons ORDER BY id'))
   res.json({ stats, users, lessons: lessons.map(lessonPayload) })
 })
 
@@ -585,15 +603,15 @@ app.post('/api/admin/users', auth, adminOnly, async (req, res) => {
   const username=String(email||'').trim().toLowerCase()
   const policyError=passwordError(password)
   if (!name?.trim() || !email?.trim() || name.trim().length>120||email.trim().length>160||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())||policyError)
-    return res.status(400).json({ message: policyError||'Нэр болон зөв и-мэйл хаяг оруулна уу.' })
+    return res.status(400).json({ message: policyError||'Нэр болон зөв цахим шуудан хаяг оруулна уу.' })
   try {
-    if(await db.get('SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)',[username.trim(),email.trim()]))return res.status(409).json({message:'Username эсвэл и-мэйл бүртгэлтэй байна.'})
+    if(await db.get('SELECT id FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?)',[username.trim(),email.trim()]))return res.status(409).json({message:'Нэвтрэх нэр эсвэл цахим шуудангийн хаяг бүртгэлтэй байна.'})
     const result = await db.run('INSERT INTO users (name,surname,department,position,phone,username,email,password_hash,role) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id', [
       name.trim(),String(surname).trim(),String(department).trim(),String(position).trim(),String(phone).trim(),username,username,await bcrypt.hash(password,12),role==='admin'?'admin':'student'
     ])
     res.json({ id:Number(result.lastInsertRowid) })
   } catch {
-    res.status(409).json({ message: 'Username эсвэл и-мэйл бүртгэлтэй байна.' })
+    res.status(409).json({ message: 'Нэвтрэх нэр эсвэл цахим шуудангийн хаяг бүртгэлтэй байна.' })
   }
 })
 

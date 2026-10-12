@@ -1,5 +1,5 @@
 import React, {useEffect,useMemo,useState} from 'react'
-import {ReportActions,AuditLog} from './ReportActions.jsx'
+import {ReportActions} from './ReportActions.jsx'
 import {ActivityTrend,AttentionList,CourseBars,ScoreDistribution} from './AnalyticsCharts.jsx'
 import {Activity, Award, BarChart3, Eye, RefreshCw, Target, TrendingUp, UserCheck, Users} from 'lucide-react'
 import {compareDepartments,compareStaff} from './staffOrder.js'
@@ -49,14 +49,14 @@ export default function AdminAnalytics({request}) {
     {error&&<p className="error" role="alert">{error}</p>}
     {!data&&loading&&<p role="status">Тайлан ачаалж байна…</p>}
     {data&&<>
-      <div className="bi-slicers" aria-label="Dashboard шүүлтүүр">
-        <label>Хэрэглэгч<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Нэр, и-мэйл, албан тушаал…"/></label>
+      <div className="bi-slicers" aria-label="Хяналтын самбарын шүүлтүүр">
+        <label>Хэрэглэгч<input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Нэр, цахим шуудан, албан тушаал…"/></label>
         <label>Нэгж<select value={department} onChange={e=>{setDepartment(e.target.value);if(e.target.value!=='all')setRole('all')}}><option value="all">Бүх нэгж</option>{departments.map(d=><option key={d}>{d}</option>)}</select></label>
         <label>Эрх<select value={role} onChange={e=>setRole(e.target.value)}><option value="student">Суралцагч</option><option value="admin">Админ</option><option value="all">Бүгд</option></select></label>
         <label>Хичээл<select value={course} onChange={e=>setCourse(e.target.value)}><option value="all">Бүх хичээл</option>{data.courses.map(c=><option key={c.id} value={c.id}>{c.title}</option>)}</select></label>
         <button onClick={()=>{setQuery('');setRole('student');setCourse('all');setDepartment('all')}}>Шүүлтүүр цэвэрлэх</button>
       </div>
-      {department!=='all'&&<section className="department-users" aria-live="polite"><div className="department-users-head"><div><h3>{department}</h3><p>Тус нэгжид бүртгэлтэй бүх хэрэглэгч</p></div><strong>{departmentUsers.length}</strong></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>И-мэйл</th><th>Албан тушаал</th><th>Эрх</th></tr></thead><tbody>{departmentUsers.map(u=><tr key={u.id}><td><b>{u.surname?`${u.surname} `:''}{u.name}</b></td><td>{u.email||u.username}</td><td>{u.position||'—'}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td></tr>)}</tbody></table></div></section>}
+      {department!=='all'&&<section className="department-users" aria-live="polite"><div className="department-users-head"><div><h3>{department}</h3><p>Тус нэгжид бүртгэлтэй бүх хэрэглэгч</p></div><strong>{departmentUsers.length}</strong></div><div className="admin-table-wrap"><table><thead><tr><th>Хэрэглэгч</th><th>Цахим шуудан</th><th>Албан тушаал</th><th>Эрх</th></tr></thead><tbody>{departmentUsers.map(u=><tr key={u.id}><td><b>{u.surname?`${u.surname} `:''}{u.name}</b></td><td>{u.email||u.username}</td><td>{u.position||'—'}</td><td><span className={`role ${u.role}`}>{u.role==='admin'?'Админ':'Суралцагч'}</span></td></tr>)}</tbody></table></div></section>}
       <ReportActions users={users}/>
       <p className="analytics-note">Хандалт, хичээл нээсэн түүхийг {date(data.started_at)}-аас бүртгэнэ. Өмнөх шалгалтын оноонууд багтсан. Хичээл нээсэн нь уншиж дуусгасны баталгаа биш.</p>
       <div className="dashboard-kpis">{kpis.map(({label,value,hint,icon:Icon,tone})=><article className={`kpi-card ${tone}`} key={label}><span><Icon size={18}/></span><div><small>{label}</small><strong>{value}</strong><em>{hint}</em></div></article>)}</div>
@@ -77,7 +77,7 @@ export default function AdminAnalytics({request}) {
       </div>
       <div className="analytics-metrics">
         <div><span>Сүүлийн 7 хоног</span><strong>{data.summary.active7}</strong><small>Нэвтэрсэн суралцагч</small></div>
-        <div><span>Нийт нэвтрэлт</span><strong>{data.summary.logins}</strong><small>Амжилттай login</small></div>
+        <div><span>Нийт нэвтрэлт</span><strong>{data.summary.logins}</strong><small>Амжилттай нэвтрэлт</small></div>
         <div><span>Шалгалтын оролдлого</span><strong>{dashboard.attempts}</strong><small>Шүүлтүүрт таарсан</small></div>
         <div><span>Дундаж хамрагдалт</span><strong>{dashboard.coverage}%</strong><small>Нээсэн хичээл / боломжит хичээл</small></div>
       </div>
@@ -95,6 +95,5 @@ export default function AdminAnalytics({request}) {
       </div>
       <div className="analytics-legend"><span><i/> Нээсэн</span><span><i/> Шалгалт</span><span><i/> Тэнцсэн</span><span><Target size={14}/> Босго 50%</span><span><TrendingUp size={14}/> Илүү өндөр хувь сайн</span></div>
     </>}
-    <AuditLog request={request}/>
   </section>
 }

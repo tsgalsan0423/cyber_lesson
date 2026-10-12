@@ -1,6 +1,63 @@
 // Plain-language editorial edition. One idea per bullet; examples use fictional situations.
 const section=(title,points,example,task)=>({title,text:points.map(p=>'- '+p).join('\n'),...(example?{example,task}:{}),icon:'book'})
 const q=(question,options,answer,explain)=>({question,options,answer,explain})
+const naturalWording=text=>String(text)
+  .replaceAll('И-мэйл','Цахим шуудан')
+  .replaceAll('и-мэйл','цахим шуудан')
+  .replaceAll('Имэйл','Цахим шуудан')
+  .replaceAll('имэйл','цахим шуудан')
+  .replaceAll('Имейл','Цахим шуудан')
+  .replaceAll('имейл','цахим шуудан')
+  .replaceAll('IT баг','мэдээллийн технологийн баг')
+  .replaceAll('IT ажилтан','мэдээллийн технологийн ажилтан')
+  .replaceAll('мэдээллийн технологийн баг','мэдээллийн технологи хариуцсан нэгж')
+  .replaceAll('мэдээллийн технологийн ажилтан','мэдээллийн технологи хариуцсан албан хаагч')
+  .replaceAll('хариуцсан ажилтан','хариуцсан албан хаагч')
+  .replaceAll('Хариуцсан ажилтан','Хариуцсан албан хаагч')
+  .replaceAll('хамт ажилладаг хүн','хамтран ажиллагч')
+  .replaceAll('Захирлын','Удирдах албан тушаалтны')
+  .replaceAll('захирлын','удирдах албан тушаалтны')
+  .replaceAll('Даргын','Удирдах албан тушаалтны')
+  .replaceAll('даргын','удирдах албан тушаалтны')
+  .replaceAll('веб сайт','цахим хуудас')
+  .replaceAll('Веб сайт','Цахим хуудас')
+  .replaceAll('вебийн','цахим хуудасны')
+  .replaceAll('сайтуудад','цахим хуудсуудад')
+  .replaceAll('сайтын','цахим хуудасны')
+  .replaceAll('сайтыг','цахим хуудсыг')
+  .replaceAll('сайтаар','цахим хуудсаар')
+  .replaceAll('сайтаас','цахим хуудаснаас')
+  .replaceAll('сайтад','цахим хуудсанд')
+  .replaceAll('сайт руу','цахим хуудас руу')
+  .replaceAll('Сайт','Цахим хуудас')
+  .replaceAll('сайт','цахим хуудас')
+  .replaceAll('аппыг','хэрэглүүрийг')
+  .replaceAll('аппад','хэрэглүүрт')
+  .replaceAll('апп','хэрэглүүр')
+  .replaceAll('Мессеж','Зурвас')
+  .replaceAll('мессеж','зурвас')
+  .replaceAll('update','шинэчлэлт')
+  .replaceAll('Update','Шинэчлэлт')
+  .replaceAll('restart','дахин асаалт')
+  .replaceAll('session','нэвтрэлтийн холболт')
+  .replaceAll('Macro','макро үйлдэл')
+  .replaceAll('refresh','дахин ачаалах')
+  .replaceAll('CPU','тооцоолох хүчин чадал')
+  .replaceAll('Man-in-the-Middle','мэдээлэл дундаас нь сонсох халдлага')
+  .replaceAll('Cryptojacking','төхөөрөмжийн хүчин чадлыг нууцаар ашиглах халдлага')
+  .replaceAll('SQL Injection','өгөгдлийн санд хортой команд оруулах халдлага')
+  .replaceAll('Insider Attack','дотоод эрхийн буруу ашиглалт')
+  .replaceAll('Ransomware','файл түгжиж мөнгө нэхэх халдлага')
+  .replaceAll('ransomware','файл түгжиж мөнгө нэхэх халдлага')
+  .replaceAll('Phishing','фишинг халдлага')
+  .replaceAll('phishing','фишинг халдлага')
+  .replaceAll('Malware','хортой программ')
+
+export const naturalizeLessonText=value=>Array.isArray(value)
+  ?value.map(naturalizeLessonText)
+  :value&&typeof value==='object'
+    ?Object.fromEntries(Object.entries(value).map(([key,item])=>[key,naturalizeLessonText(item)]))
+    :typeof value==='string'?naturalWording(value):value
 export const plainLessons=[
   {
     id:1,title:'Хуурамч имэйл, мессежийг таних',category:'Хуурамч хүсэлтээс сэргийлэх',
@@ -144,6 +201,8 @@ export const plainLessons=[
     quiz:[q('Нэг компьютерийн хоёр өөр хавтсанд хадгалсан хуулбар юунаас хамгаалахгүй вэ?',['Хадгалах төхөөрөмж бүхэлдээ эвдрэхээс','Файлыг өөр нэрээр хадгалахаас','Хавтасны нэр солихоос'],0,'Нэг төхөөрөмж эвдэрвэл түүн дээрх хоёр хуулбар хоёулаа алдагдаж болно.'),q('Файлыг автоматаар ижил болгодог системийн тухай аль нь зөв вэ?',['Тусдаа нөөцтэй яг адил','Устгал бас давтагдаж болох тул сэргээх боломжийг шалгана','Хэзээ ч алдаа гаргахгүй'],1,'Өмнөх хувилбар үлдэж байгаа эсэх, тусдаа нөөц байгаа эсэхийг нягтална.'),q('Нөөцлөлт ажиллаж байгааг хэрхэн шалгах вэ?',['Програмын дүрс байгааг харна','Зөвхөн тохиргоо асаалттай эсэхийг харна','Сүүлийн амжилттай огноог шалгаж, файл сэргээж үзнэ'],2,'Нөөцлөх тохиргоо асаалттай байсан ч ажиллахаа больсон байж болно. Сэргээх туршилт хийх нь чухал.'),q('Ажлын нууц файлын нөөцийг хаана хадгалах вэ?',['Хувийн чатад','Байгууллагын зөвшөөрсөн хамгаалалттай системд','Холбоостой хүн бүр үзэх хавтаст'],1,'Нөөц файлд эх файлтай адил хамгаалалт хэрэгтэй.')]
   }
 ]
+
+for(let index=0;index<plainLessons.length;index++)plainLessons[index]=naturalizeLessonText(plainLessons[index])
 
 for(const lesson of plainLessons) {
   lesson.cases=lesson.content.filter(s=>s.example).map(s=>({title:s.title,text:s.example+'\n\nТа энэ үед юу хийх вэ?',explanation:s.task,task:'Эхлээд өөрийн хийх алхмыг бодоод, дараа нь тайлбартай харьцуулаарай.',icon:'search'}))

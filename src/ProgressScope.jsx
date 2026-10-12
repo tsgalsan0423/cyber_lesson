@@ -14,7 +14,7 @@ const csvCell=value=>{
 }
 
 function exportProgress(users){
-  const rows=[['Овог','Нэр','И-мэйл','Нэгж','Албан тушаал','Хичээл','Нээсэн','Оролдлого','Сүүлийн оноо','Шилдэг оноо','Дуусгасан']]
+  const rows=[['Овог','Нэр','Цахим шуудан','Нэгж','Албан тушаал','Хичээл','Нээсэн','Оролдлого','Сүүлийн оноо','Шилдэг оноо','Дуусгасан']]
   users.forEach(user=>(user.courses||[]).forEach(course=>rows.push([
     user.surname||'',user.name,user.email||user.username||'',user.department||'',user.position||'',course.title,
     course.opened?'Тийм':'Үгүй',course.attempts||0,course.last_score??'',course.best_score??'',course.completed?'Тийм':'Үгүй'
