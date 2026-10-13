@@ -67,7 +67,7 @@ function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
       const data=await request('/auth/login', { method: 'POST', body: JSON.stringify(form) })
       if(!data?.user||typeof data.token!=='string'||!data.token) throw new Error('Нэвтрэх мэдээлэл серверээс бүрэн ирсэнгүй. Дахин оролдоно уу.')
       if(adminOnly&&data.user.role!=='admin') throw new Error('Энэ хуудас зөвхөн админд зориулагдсан. Хэрэглэгчийн нэвтрэх хуудсыг ашиглана уу.')
-      if(!adminOnly&&data.user.role==='admin') throw new Error('Админ хэрэглэгч /admin/login хаягаар нэвтэрнэ үү.')
+      if(!adminOnly&&data.user.role==='admin') throw new Error('Нэвтрэх нэр эсвэл нууц үг буруу байна.')
       onAuth(data)
     }
     catch (e) { setError(e.message) }
