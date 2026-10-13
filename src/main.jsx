@@ -295,7 +295,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
         <div className="filters level-filters">{levelFilters.map(level=><button key={level} className={filter===level?'active':''} onClick={()=>setFilter(level)}>{level}</button>)}</div>
         <LessonCarousel lessons={filtered} renderLesson={lessonCard}/>
         {!filtered.length&&<div className="empty"><BookOpen/><h3>Хичээл олдсонгүй</h3><p>Сонгосон түвшний хичээл одоогоор алга байна.</p></div>}
-        <section className="page-section" id="completed"><div className="section-head"><div><span>ТАНЫ ҮР ДҮН</span><h2>Дуусгасан болон шалгалт өгсөн хичээлүүд</h2></div></div><div className="lesson-grid">{completedLessons.map(lessonCard)}</div>{!completedLessons.length&&<div className="empty"><CheckCircle2/><h3>Шалгалт өгсөн хичээл алга байна</h3><p>Шалгалтаа дуусгахад оноо, үр дүн энд харагдана.</p></div>}</section>
+        <section className="page-section" id="completed"><div className="section-head"><div><span>ТАНЫ ҮР ДҮН</span><h2>Дуусгасан болон шалгалт өгсөн хичээлүүд</h2></div></div><LessonCarousel lessons={completedLessons} renderLesson={lessonCard}/>{!completedLessons.length&&<div className="empty"><CheckCircle2/><h3>Шалгалт өгсөн хичээл алга байна</h3><p>Шалгалтаа дуусгахад оноо, үр дүн энд харагдана.</p></div>}</section>
         <section className="page-section"><News request={request} onCountChange={setNewsCount}/></section>
         <ProgressScope request={request}/>
       </main><footer><Brand compact/><span>© 2026 Нийтийн мэдээллийн дэд бүтэц, Нээлттэй өгөгдлийн газар</span><span>Мэдлэгтэй бол Аюулгүй</span></footer>
