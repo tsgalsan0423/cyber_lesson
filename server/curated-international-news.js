@@ -1,7 +1,25 @@
-// Verified source articles published during 2026-09-25–2026-10-09.
+// Verified source articles published during 2026-09-25–2026-10-12.
 // These entries are bundled with the app so the international section has
 // sourced Mongolian summaries even before automatic news refresh is configured.
 export const curatedInternationalNews = [
+  {
+    id: -1018,
+    title: 'Citrix NetScaler-ийн SAML тохиргоонд алсаас код ажиллуулах ноцтой эмзэг байдал илэрчээ',
+    body: 'Citrix NetScaler ADC болон NetScaler Gateway-ийн CVE-2026-107406 санах ойн хязгаарлалтын эмзэг байдал CVSS 4.0 үнэлгээгээр 9.5 оноо авсан. SAML Service Provider эсвэл SAML Identity Provider хэлбэрээр тохируулсан төхөөрөмжид нэвтрэх эрхгүй алсын халдагч код ажиллуулах эсвэл үйлчилгээг доголдуулах боломжтой. NetScaler-ийн 14.1 болон 13.1 салбарын холбогдох хувилбарууд, мөн NetScaler instance ашигладаг Secure Private Access Hybrid орчин нөлөөлнө. Администраторууд SAML тохиргоогоо шалгаж, хамгийн сүүлийн засварласан хувилбар руу нэн даруй шинэчлэх шаардлагатай.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cyber Security Agency of Singapore / Citrix',
+    external_url: 'https://www.csa.gov.sg/alerts-and-advisories/alerts/al-2026-140/',
+    published_at: '2026-10-12',
+  },
+  {
+    id: -1017,
+    title: 'HPE ClearPass-д нэвтрэх хамгаалалт тойрох, код ажиллуулах 10 ноцтой эмзэг байдал засагджээ',
+    body: 'HPE Networking ClearPass Policy Manager-д CVSS 9.1–9.9 үнэлгээтэй 10 эмзэг байдал илэрсэн. Эдгээрийн заримыг нэвтрэх эрхгүй алсын халдагч ашиглан баталгаажуулалтыг тойрох, админ эрх авах, дурын код эсвэл өгөгдлийн сангийн команд ажиллуулах боломжтой; мөн agent-ийн integrity шалгалтгүй байдал, format string, SQL injection болон path traversal алдаанууд багтжээ. ClearPass Policy Manager 6.14.0 болон түүнээс өмнөх, 6.11.15 болон түүнээс өмнөх хувилбарууд нөлөөлөх тул хамгийн сүүлийн хувилбар руу нэн даруй шинэчлэхийг зөвлөсөн.',
+    category: 'Ноцтой эмзэг байдал',
+    source_name: 'Cyber Security Agency of Singapore / HPE',
+    external_url: 'https://www.csa.gov.sg/alerts-and-advisories/alerts/al-2026-139/',
+    published_at: '2026-10-12',
+  },
   {
     id: -1016,
     title: 'Нийлүүлэгчийн нэг компьютероос 8.724 сая хүний мэдээлэл алдагдах эрсдэл үүсжээ',
