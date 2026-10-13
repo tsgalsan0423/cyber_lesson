@@ -236,7 +236,23 @@ try {
   assert.equal(authored.image_url,dataImage)
   progressResult=await (await call('/lessons/'+authoredId+'/progress',{answers:[1]})).json();assert.equal(progressResult.score,100);assert.equal(progressResult.completed,true)
   token=adminToken
+  const archived=await fetch('http://127.0.0.1:'+port+'/api/admin/lessons/'+authoredId,{method:'DELETE',headers:{Authorization:'Bearer '+token}})
+  assert.equal(archived.status,200)
+  token=(await (await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'Self-Changed-Password-9!'})).json()).token
+  assert.equal((await (await call('/lessons')).json()).some(lesson=>lesson.id===authoredId),false,'Archived lesson is hidden from learners')
+  assert.equal((await call('/lessons/'+authoredId+'/progress',{answers:[1]})).status,404,'Archived lesson cannot receive new attempts')
+  token=adminToken
+  const archivedOverview=await (await call('/admin/overview')).json()
+  assert.equal(Number(archivedOverview.lessons.find(lesson=>lesson.id===authoredId)?.archived),1)
+  const restored=await fetch('http://127.0.0.1:'+port+'/api/admin/lessons/'+authoredId+'/archive',{method:'PATCH',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({archived:false})})
+  assert.equal(restored.status,200)
+  token=(await (await call('/auth/login',{identifier:'dashboard-updated@example.test',password:'Self-Changed-Password-9!'})).json()).token
+  const restoredLesson=(await (await call('/lessons')).json()).find(lesson=>lesson.id===authoredId)
+  assert.equal(restoredLesson?.completed,1,'Restored lesson keeps completion')
+  assert.equal(restoredLesson?.attempts,1,'Restored lesson keeps exam attempts')
+  token=adminToken
   console.log('PASS: admin lesson authoring, full content update, validation, student delivery and scoring')
+  console.log('PASS: lesson archive hides content, blocks new attempts, preserves progress and restores safely')
   console.log('PASS: self-service password verification, validation, user isolation, session revocation and re-login')
   console.log('PASS: expanded theory, 0/25/50/100% scores, attempt count, latest score, persistent completion')
   console.log('PASS: security headers, forged token rejection, SQL injection resistance, login throttling, password policy and quiz-answer secrecy')

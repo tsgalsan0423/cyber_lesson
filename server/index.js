@@ -72,7 +72,9 @@ if (db.dialect === 'postgres') {
       content_json TEXT NOT NULL DEFAULT '[]',
       quiz_json TEXT NOT NULL DEFAULT '[]',
       image_url TEXT,
-      cases_json TEXT
+      cases_json TEXT,
+      archived INTEGER NOT NULL DEFAULT 0,
+      archived_at TIMESTAMPTZ
     );
     CREATE TABLE IF NOT EXISTS progress (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -99,7 +101,9 @@ if (db.dialect === 'postgres') {
     level TEXT NOT NULL,
     category TEXT NOT NULL,
     video_url TEXT NOT NULL,
-    accent TEXT NOT NULL
+    accent TEXT NOT NULL,
+    archived INTEGER NOT NULL DEFAULT 0,
+    archived_at TEXT
   );
   CREATE TABLE IF NOT EXISTS progress (
     user_id INTEGER NOT NULL,
@@ -143,6 +147,14 @@ function parseJson(value, fallback) {
 for (const column of ['objectives_json','summary_json']) {
   if (db.dialect === 'postgres') await db.exec(`ALTER TABLE lessons ADD COLUMN IF NOT EXISTS ${column} TEXT`)
   else if (!(await db.all('PRAGMA table_info(lessons)')).some(c=>c.name===column)) await db.exec(`ALTER TABLE lessons ADD COLUMN ${column} TEXT`)
+}
+if (db.dialect === 'postgres') {
+  await db.exec('ALTER TABLE lessons ADD COLUMN IF NOT EXISTS archived INTEGER NOT NULL DEFAULT 0')
+  await db.exec('ALTER TABLE lessons ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ')
+} else {
+  const lessonColumns=(await db.all('PRAGMA table_info(lessons)')).map(column=>column.name)
+  if(!lessonColumns.includes('archived'))await db.exec('ALTER TABLE lessons ADD COLUMN archived INTEGER NOT NULL DEFAULT 0')
+  if(!lessonColumns.includes('archived_at'))await db.exec('ALTER TABLE lessons ADD COLUMN archived_at TEXT')
 }
 const learningList = value => (Array.isArray(value)?value:[]).map(x=>String(x).trim().slice(0,1500)).filter(Boolean).slice(0,10)
 
@@ -511,12 +523,12 @@ app.get('/api/admin/users/:id/details',auth,adminOnly,async(req,res)=>{
       completed:normalized.filter(course=>course.completed).length,average:scores.length?Math.round(scores.reduce((sum,score)=>sum+score,0)/scores.length):null},courses:normalized})
 })
 app.get('/api/lessons', auth, async (req, res) => {
-  const rows = sortLessons(await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? ORDER BY l.id`, [req.user.id, req.user.id, req.user.id]))
+  const rows = sortLessons(await db.all(`SELECT l.*, COALESCE(p.completed, 0) completed, (SELECT score FROM exam_attempts WHERE user_id=? AND lesson_id=l.id ORDER BY id DESC LIMIT 1) last_score, (SELECT count(*) FROM exam_attempts WHERE user_id=? AND lesson_id=l.id) attempts FROM lessons l LEFT JOIN progress p ON p.lesson_id=l.id AND p.user_id=? WHERE COALESCE(l.archived,0)=0 ORDER BY l.id`, [req.user.id, req.user.id, req.user.id]))
   res.json(rows.map(row=>{const lesson=lessonPayload(row);const {quiz_json,content_json,cases_json,objectives_json,summary_json,...safe}=lesson;return {...safe,quiz:lesson.quiz.map(({question,options})=>({question,options}))}}))
 })
 
 app.post('/api/lessons/:id/progress', auth, async (req, res) => {
-  const lesson = await db.get('SELECT quiz_json FROM lessons WHERE id=?', [req.params.id])
+  const lesson = await db.get('SELECT quiz_json FROM lessons WHERE id=? AND COALESCE(archived,0)=0', [req.params.id])
   if (!lesson) return res.status(404).json({ message: 'Хичээл олдсонгүй.' })
   if (req.body?.integrity_failure === true) {
     await db.run('INSERT INTO exam_attempts (user_id, lesson_id, score, passed, ip_address, device_id) VALUES (?, ?, 0, 0, ?, ?)', [req.user.id, req.params.id,clientIp(req),clientDeviceId(req)])
@@ -537,8 +549,8 @@ app.get('/api/admin/overview', auth, adminOnly, async (req, res) => {
   const users = await db.all("SELECT id,name,username,email,role,created_at,surname,department,position,phone,must_change_password FROM users ORDER BY created_at DESC")
   const stats = {
     users: Number((await db.get("SELECT count(*) count FROM users WHERE role='student'")).count),
-    lessons: Number((await db.get('SELECT count(*) count FROM lessons')).count),
-    completions: Number((await db.get('SELECT count(*) count FROM progress WHERE completed=1')).count)
+    lessons: Number((await db.get('SELECT count(*) count FROM lessons WHERE COALESCE(archived,0)=0')).count),
+    completions: Number((await db.get('SELECT count(*) count FROM progress p JOIN lessons l ON l.id=p.lesson_id WHERE p.completed=1 AND COALESCE(l.archived,0)=0')).count)
   }
   const lessons = sortLessons(await db.all('SELECT * FROM lessons ORDER BY id'))
   res.json({ stats, users, lessons: lessons.map(lessonPayload) })
@@ -575,14 +587,19 @@ app.put('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
 
 app.delete('/api/admin/lessons/:id', auth, adminOnly, async (req, res) => {
   const lesson=await db.get('SELECT title FROM lessons WHERE id=?',[req.params.id])
-  await db.transaction(async (tx) => {
-    await tx.run('DELETE FROM exam_attempts WHERE lesson_id=?', [req.params.id])
-    await tx.run('DELETE FROM lesson_views WHERE lesson_id=?', [req.params.id])
-    await tx.run('DELETE FROM progress WHERE lesson_id=?', [req.params.id])
-    await tx.run('DELETE FROM lessons WHERE id=?', [req.params.id])
-  })
-  if(lesson)await createNotification(db,{type:'lesson_deleted',title:'Хичээл хасагдлаа',message:lesson.title,targetUrl:'#lessons'})
-  res.json({ ok: true })
+  if(!lesson)return res.status(404).json({message:'Хичээл олдсонгүй.'})
+  await db.run('UPDATE lessons SET archived=1,archived_at=CURRENT_TIMESTAMP WHERE id=?',[req.params.id])
+  await createNotification(db,{type:'lesson_archived',title:'Хичээл архивлагдлаа',message:lesson.title,targetUrl:'#lessons'})
+  res.json({ok:true,archived:true})
+})
+
+app.patch('/api/admin/lessons/:id/archive',auth,adminOnly,async(req,res)=>{
+  const archived=req.body?.archived!==false
+  const lesson=await db.get('SELECT title FROM lessons WHERE id=?',[req.params.id])
+  if(!lesson)return res.status(404).json({message:'Хичээл олдсонгүй.'})
+  await db.run(`UPDATE lessons SET archived=?,archived_at=${archived?'CURRENT_TIMESTAMP':'NULL'} WHERE id=?`,[archived?1:0,req.params.id])
+  await createNotification(db,{type:archived?'lesson_archived':'lesson_restored',title:archived?'Хичээл архивлагдлаа':'Хичээл сэргээгдлээ',message:lesson.title,targetUrl:'#lessons'})
+  res.json({ok:true,archived})
 })
 
 app.patch('/api/admin/users/:id/role', auth, adminOnly, async (req, res) => {

@@ -4,7 +4,7 @@ import {sortLessons} from './lesson-order.js'
 async function loadProgressReports(db){
   const users=await db.all(`SELECT u.id,u.name,u.surname,u.username,u.email,u.department,u.position,u.role
     FROM users u ORDER BY u.name,u.id`)
-  const lessons=sortLessons(await db.all('SELECT id,title FROM lessons ORDER BY id'))
+  const lessons=sortLessons(await db.all('SELECT id,title FROM lessons WHERE COALESCE(archived,0)=0 ORDER BY id'))
   const views=await db.all('SELECT * FROM lesson_views')
   const attempts=await db.all('SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC')
   const completions=await db.all('SELECT user_id,lesson_id FROM progress WHERE completed=1')
@@ -62,7 +62,8 @@ export async function installAnalytics(app, db, auth, adminOnly) {
   `)
 
   app.post('/api/lessons/:id/view', auth, async (req,res)=>{
-    if (!await db.get('SELECT id FROM lessons WHERE id=?', [req.params.id])) return res.status(404).json({message:'Хичээл олдсонгүй.'})
+    const lesson=await db.get('SELECT id,archived FROM lessons WHERE id=?', [req.params.id])
+    if (!lesson||Number(lesson.archived)&&req.user.role!=='admin') return res.status(404).json({message:'Хичээл олдсонгүй.'})
     // Admin previews are not learner engagement.
     if(req.user.role!=='admin') await db.run(`INSERT INTO lesson_views (user_id,lesson_id) VALUES (?,?)
       ON CONFLICT(user_id,lesson_id) DO UPDATE SET last_viewed_at=CURRENT_TIMESTAMP, opens=lesson_views.opens+1`, [req.user.id,req.params.id])
@@ -74,7 +75,7 @@ export async function installAnalytics(app, db, auth, adminOnly) {
       (SELECT count(*) FROM login_events WHERE user_id=u.id) logins,
       (SELECT max(created_at) FROM login_events WHERE user_id=u.id) last_login
       FROM users u ORDER BY u.name,u.id`)
-    const lessons=sortLessons(await db.all('SELECT id,title FROM lessons ORDER BY id'))
+    const lessons=sortLessons(await db.all('SELECT id,title FROM lessons WHERE COALESCE(archived,0)=0 ORDER BY id'))
     const views=await db.all('SELECT * FROM lesson_views')
     const attempts=await db.all('SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC')
     const completions=await db.all('SELECT user_id,lesson_id FROM progress WHERE completed=1')
