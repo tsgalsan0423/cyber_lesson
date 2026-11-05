@@ -426,3 +426,13 @@ button:not(:disabled):hover svg{transform:none!important}
 .archive-status{display:inline-flex;margin-left:.55rem;padding:.22rem .48rem;border-radius:999px;background:#e2e8f0;color:#475569;font-size:.7rem;font-weight:800;vertical-align:middle}
 .admin-table-wrap td button.restore-lesson{color:#059669;border-color:#a7f3d0;background:#ecfdf5}
 .admin-table-wrap td button.restore-lesson:hover{background:#d1fae5}
+
+/* Global request feedback: appears only when a foreground request takes longer than 220 ms. */
+.global-loading-shadow{position:fixed;inset:0;z-index:2147483646;display:grid;place-items:center;padding:24px;background:rgba(5,18,32,.52);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);animation:global-loading-fade .18s ease-out}
+.global-loading-panel{width:min(330px,calc(100vw - 40px));display:flex;flex-direction:column;align-items:center;padding:28px 24px;border:1px solid rgba(255,255,255,.22);border-radius:18px;background:rgba(8,27,43,.94);color:#f7fbff;box-shadow:0 24px 70px rgba(0,0,0,.3);text-align:center}
+.global-loading-panel b{margin-top:16px;font-size:16px}.global-loading-panel small{margin-top:7px;color:#b8c9d7;font-size:11px;line-height:1.55}
+.global-loading-spinner{width:42px;height:42px;border:4px solid rgba(94,234,194,.22);border-top-color:#5eeac2;border-radius:50%;animation:global-loading-spin .8s linear infinite}
+.page-section,.admin-section{content-visibility:auto;contain-intrinsic-size:auto 520px}
+@keyframes global-loading-spin{to{transform:rotate(360deg)}}
+@keyframes global-loading-fade{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){.global-loading-shadow{animation:none}.global-loading-spinner{animation-duration:1.6s}}

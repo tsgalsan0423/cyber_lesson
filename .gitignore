@@ -7,3 +7,4 @@ server/*.db-wal
 .env
 server/private/
 sites/.generated-assets.js
+promo-video/

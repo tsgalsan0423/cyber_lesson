@@ -10,11 +10,11 @@ export default function News({request,admin=false,onCountChange}) {
   const [preview,setPreview]=useState(null)
   const carouselRef=useRef(null)
   useEffect(()=>{carouselRef.current?.scrollTo({left:0,behavior:'auto'})},[section,search])
-  const load=async(quiet=false)=>{if(!quiet)setLoading(true);try{const next=await request('/news');setItems(next);onCountChange?.(next.length)}catch(e){if(!quiet)setError(e.message)}finally{if(!quiet)setLoading(false)}}
+  const load=async(quiet=false)=>{if(!quiet)setLoading(true);try{const next=await request('/news',{silent:quiet,forceRefresh:!quiet});setItems(next);onCountChange?.(next.length)}catch(e){if(!quiet)setError(e.message)}finally{if(!quiet)setLoading(false)}}
   useEffect(()=>{load();const timer=admin?null:window.setTimeout(()=>load(true),12000);return()=>{if(timer)window.clearTimeout(timer)}},[])
   useEffect(()=>{
     if(!admin)return
-    request('/admin/news/status').then(async status=>{
+    request('/admin/news/status',{silent:true}).then(async status=>{
       setAiStatus(status)
       if(status.configured&&(!status.last_synced_at||Date.now()-Date.parse(status.last_synced_at)>6*60*60*1000)){
         setSyncing(true)

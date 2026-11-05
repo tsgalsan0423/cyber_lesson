@@ -7,7 +7,7 @@ const formatDate=value=>new Date(value.includes('T')?value:value.replace(' ','T'
 export default function Notifications({request}){
   const [items,setItems]=useState([]),[open,setOpen]=useState(false),[error,setError]=useState('')
   const wrap=useRef(null)
-  const load=()=>request('/notifications').then(setItems).catch(()=>{})
+  const load=()=>request('/notifications',{silent:true,cacheTtl:15000}).then(setItems).catch(()=>{})
   useEffect(()=>{load();const timer=setInterval(load,60000);window.addEventListener('focus',load);return()=>{clearInterval(timer);window.removeEventListener('focus',load)}},[])
   useEffect(()=>{const close=event=>{if(!wrap.current?.contains(event.target))setOpen(false)};document.addEventListener('pointerdown',close);return()=>document.removeEventListener('pointerdown',close)},[])
   const unread=items.filter(item=>!Number(item.is_read)).length
