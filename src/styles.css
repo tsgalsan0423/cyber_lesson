@@ -438,3 +438,55 @@ button:not(:disabled):hover svg{transform:none!important}
 @keyframes global-loading-fade{from{opacity:0}to{opacity:1}}
 @keyframes deferred-shimmer{to{background-position:-240% 0}}
 @media(prefers-reduced-motion:reduce){.global-loading-shadow,.deferred-mount>.deferred-placeholder{animation:none}.global-loading-spinner{animation-duration:1.6s}}
+
+/* Keep admin user action icons equal-sized and reveal their names only on hover/focus. */
+.admin-table-wrap td.user-actions>button{
+  position:relative!important;
+  display:inline-grid!important;
+  place-items:center!important;
+  width:34px!important;
+  min-width:34px!important;
+  max-width:34px!important;
+  height:34px!important;
+  min-height:34px!important;
+  max-height:34px!important;
+  padding:0!important;
+  overflow:visible!important;
+  vertical-align:middle;
+  line-height:0;
+}
+.admin-table-wrap td.user-actions>button>span{display:none!important}
+.admin-table-wrap td.user-actions>button::after{
+  content:attr(title);
+  position:absolute;
+  right:50%;
+  bottom:calc(100% + 8px);
+  z-index:50;
+  width:max-content;
+  max-width:190px;
+  padding:7px 9px;
+  border-radius:7px;
+  background:#172033;
+  color:#fff;
+  box-shadow:0 8px 22px #0f172a38;
+  font-size:10px;
+  font-weight:750;
+  line-height:1.25;
+  white-space:nowrap;
+  pointer-events:none;
+  opacity:0;
+  visibility:hidden;
+  transform:translate(50%,4px);
+  transition:opacity .15s ease,transform .15s ease,visibility .15s ease;
+}
+.admin-table-wrap td.user-actions>button:hover::after,
+.admin-table-wrap td.user-actions>button:focus-visible::after{
+  opacity:1;
+  visibility:visible;
+  transform:translate(50%,0);
+}
+:root[data-theme="dark"] .admin-table-wrap td.user-actions>button::after{
+  border:1px solid #315064;
+  background:#eaf2f8;
+  color:#102132;
+}
