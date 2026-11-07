@@ -72,16 +72,13 @@ function DeferredMount({children,id,minHeight=320,enabled=true}){
   </div>
 }
 
-function DeferredBackgroundVideo(){
-  const [ready,setReady]=useState(false)
-  useEffect(()=>{
-    if(navigator.connection?.saveData)return
-    const start=()=>setReady(true)
-    const idle=window.requestIdleCallback?.(start,{timeout:2500})
-    const timer=idle===undefined?window.setTimeout(start,1400):null
-    return()=>{if(idle!==undefined)window.cancelIdleCallback?.(idle);if(timer)window.clearTimeout(timer)}
-  },[])
-  return <div className="home-video-cover" aria-hidden="true">{ready&&<video autoPlay muted loop playsInline preload="metadata" tabIndex="-1"><source src="/media/phishing.m4v" type="video/mp4"/></video>}</div>
+function CodeBackgroundAnimation(){
+  return <div className="home-video-cover cyber-code-scene" aria-hidden="true">
+    <span className="cyber-aurora aurora-one"/><span className="cyber-aurora aurora-two"/>
+    <div className="cyber-radar"><span/><span/><span/><div><ShieldCheck/></div></div>
+    <div className="cyber-data-lines"><i/><i/><i/><i/><i/></div>
+    <div className="cyber-particles">{Array.from({length:12},(_,index)=><i key={index}/>)}</div>
+  </div>
 }
 
 function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
@@ -316,7 +313,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     {menu&&<div className="aside-overlay" onClick={()=>setMenu(false)}/>} 
     <div className="main-area">
       <header><button className="menu-btn" aria-label={sidebarHidden?'Цэс харуулах':'Цэс нуух'} title={sidebarHidden?'Цэс харуулах':'Цэс нуух'} onClick={()=>{if(window.matchMedia('(max-width:760px)').matches)setMenu(true);else setSidebarHidden(value=>!value)}}><Menu/></button><div className="header-user"><Notifications request={request}/><div className="profile-wrap"><button type="button" className="profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Суралцагч</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordOpen(true);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/></div></header>
-      <DeferredBackgroundVideo/>
+      <CodeBackgroundAnimation/>
       <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}{examNotice&&<div className="exam-guard-banner" role="alert"><Shield/><span>{examNotice}</span><button type="button" onClick={()=>setExamNotice('')} aria-label="Мэдэгдэл хаах"><X/></button></div>}
         <section className="welcome"><div><div className="eyebrow"><Sparkles/> ТАНЫ СУРАЛЦАХ ОРОН ЗАЙ</div><h1>Сайн байна уу, {user.name.split(' ')[0]} 👋</h1><p>Өнөөдөр нэг алхам урагшилж, цахим хамгаалалтаа бэхжүүлцгээе.</p><button className="primary" onClick={()=>lessons[0]&&setSelected(lessons.find(l=>!l.completed)||lessons[0])}><Play size={18} fill="currentColor"/>Хичээлээ үргэлжлүүлэх</button></div><div className="orb"><div className="orbit"><ShieldCheck/></div><span className="dot d1"/><span className="dot d2"/><span className="dot d3"/></div></section>
         <section className="progress-row"><div className="progress-copy"><span className="progress-icon"><Zap/></span><div><b>Таны ахиц</b><small>{completeCount === lessons.length && lessons.length ? 'Бүх хичээлийг амжилттай дуусгалаа!' : 'Тууштай байгаарай, та сайн явж байна!'}</small></div></div><div className="progress-main"><div className="progress-label"><span>Нийт гүйцэтгэл</span><b>{lessons.length?Math.round(completeCount/lessons.length*100):0}%</b></div><div className="progress-track"><span style={{width:`${lessons.length?completeCount/lessons.length*100:0}%`}}/></div></div><div className="count"><b>{completeCount}</b><span>/ {lessons.length} хичээл</span></div></section>
