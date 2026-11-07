@@ -5,7 +5,7 @@ import './styles.css'
 import TheoryContent,{RichText} from './TheoryContent.jsx'
 import Notifications from './Notifications.jsx'
 import './home-media.css'
-import './canvas-background.css'
+import './phishing-code-video.css'
 import './sidebar-toggle.css'
 import {randomQuiz,originalAnswers} from './quizOrder.js'
 import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js'
@@ -160,6 +160,28 @@ function CodeBackgroundAnimation(){
     <div className="cyber-data-lines"><i/><i/><i/><i/><i/></div>
     <div className="cyber-particles">{Array.from({length:12},(_,index)=><i key={index}/>)}</div>
   </div>
+}
+
+const phishingSceneDurations=[5200,7200,6300,5800,5500]
+function PhishingCodeVideo(){
+  const [scene,setScene]=useState(0)
+  useEffect(()=>{
+    const timer=window.setTimeout(()=>setScene(current=>(current+1)%phishingSceneDurations.length),phishingSceneDurations[scene])
+    return()=>window.clearTimeout(timer)
+  },[scene])
+  const questionShield=<div className="phish-shield question"><Shield/><b>?</b></div>
+  const safeShield=<div className="phish-shield safe"><ShieldCheck/></div>
+  return <section className={`home-video-cover phishing-code-video scene-${scene+1}`} aria-label="Фишингийг таних 30 секундийн кибер зөвлөмж">
+    <div className="phish-grid"/><div className="phish-glow"/>
+    <div className="phishing-scene" key={scene}>
+      {scene===0&&<div className="phish-layout intro"><div className="phish-copy"><span>30 СЕКУНДИЙН КИБЕР ЗӨВЛӨМЖ</span><h2>ФИШИНГИЙГ<br/><em>ТАНИХ УУ?</em></h2><p>Нэг буруу товшилт таны нууц үг,<br/>мөнгө, мэдээллийг алдагдуулж болно.</p></div>{questionShield}</div>}
+      {scene===1&&<div className="phish-layout warning"><div className="phish-copy"><span>АНХААРУУЛАХ 3 ШИНЖ</span><h2>Түр зогс.<br/>Сайн шалга.</h2><ol><li>Яаралтай гэж шахсан</li><li>Илгээгчийн хаяг сэжигтэй</li><li>Үг, холбоос нь зөрүүтэй</li></ol></div><div className="fake-mail"><div className="fake-mail-head"><b>!</b><span>support@bank-secure.help<strong>Данс тань хаагдах гэж байна!</strong></span></div><p>Яаралтай баталгаажуулахын тулд доорх<br/>холбоос дээр дарна уу.</p><button type="button" tabIndex="-1">ОДОО БАТАЛГААЖУУЛАХ</button></div></div>}
+      {scene===2&&<div className="phish-layout stop"><div className="fake-browser"><small>Сэжигтэй холбоос</small><b>bank-login.help/verify</b><button type="button" tabIndex="-1">НЭВТРЭХ</button><i/><span>☝️</span></div><div className="phish-copy"><span>АЮУЛГҮЙ ҮЙЛДЭЛ</span><h2>БҮҮ ДАР.<br/><em>БҮҮ НЭВТЭР.</em></h2><p>Холбоосыг нээхгүй.<br/>Хавсралтыг татахгүй.<br/>Нууц үгээ оруулахгүй.</p></div></div>}
+      {scene===3&&<div className="phish-layout verify"><div className="phish-copy"><span>ЭХ СУРВАЛЖААР НЬ БАТАЛГААЖУУЛ</span><h2>Албан ёсны апп эсвэл<br/><em>өөрийн хадгалсан дугаар</em><br/>ашигла.</h2><div className="verify-actions"><b>1. Хаягийг нягтал</b><b>2. Өөр сувгаар лавла</b><b>3. Мэдэгдэж, устга</b></div></div>{safeShield}</div>}
+      {scene===4&&<div className="phish-finale">{safeShield}<h2>ЗОГС. ШАЛГА. БАТАЛГААЖУУЛ.</h2><p>Сэжигтэй бол мэдээллийн аюулгүй байдлын багт мэдэгдээрэй.</p><b>НЭГ ТОВШИЛТЫН ӨМНӨ — НЭГ УДАА БОД</b></div>}
+    </div>
+    <div className="phish-progress" aria-hidden="true">{phishingSceneDurations.map((duration,index)=><i key={duration} className={index<scene?'done':index===scene?'active':''} style={index===scene?{'--scene-duration':`${duration}ms`}:undefined}/>)}</div>
+  </section>
 }
 
 function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
@@ -394,7 +416,7 @@ function Dashboard({ user, logout, onAdminReturn, theme, toggleTheme, onUserUpda
     {menu&&<div className="aside-overlay" onClick={()=>setMenu(false)}/>} 
     <div className="main-area">
       <header><button className="menu-btn" aria-label={sidebarHidden?'Цэс харуулах':'Цэс нуух'} title={sidebarHidden?'Цэс харуулах':'Цэс нуух'} onClick={()=>{if(window.matchMedia('(max-width:760px)').matches)setMenu(true);else setSidebarHidden(value=>!value)}}><Menu/></button><div className="header-user"><Notifications request={request}/><div className="profile-wrap"><button type="button" className="profile profile-button" aria-haspopup="menu" aria-expanded={profileMenu} onClick={()=>setProfileMenu(v=>!v)}><div className="avatar">{user.name[0].toUpperCase()}</div><div><b>{user.name}</b><span>Суралцагч</span></div></button>{profileMenu&&<div className="profile-menu" role="menu"><button role="menuitem" onClick={()=>{setPasswordOpen(true);setProfileMenu(false)}}><LockKeyhole size={16}/>Нууц үг солих</button><button role="menuitem" onClick={()=>{setProfileOpen(true);setProfileMenu(false)}}><User size={16}/>Мэдээлэл солих</button><button role="menuitem" onClick={()=>{setProfileMenu(false);logout()}}><LogOut size={16}/>Гарах</button></div>}</div><ThemeToggle theme={theme} toggleTheme={toggleTheme}/></div></header>
-      <CodeBackgroundAnimation/>
+      <PhishingCodeVideo/>
       <main className="dashboard" id="top">{viewError&&<p className="error" role="alert">{viewError}</p>}{examNotice&&<div className="exam-guard-banner" role="alert"><Shield/><span>{examNotice}</span><button type="button" onClick={()=>setExamNotice('')} aria-label="Мэдэгдэл хаах"><X/></button></div>}
         <section className="welcome"><div><div className="eyebrow"><Sparkles/> ТАНЫ СУРАЛЦАХ ОРОН ЗАЙ</div><h1>Сайн байна уу, {user.name.split(' ')[0]} 👋</h1><p>Өнөөдөр нэг алхам урагшилж, цахим хамгаалалтаа бэхжүүлцгээе.</p><button className="primary" onClick={()=>lessons[0]&&setSelected(lessons.find(l=>!l.completed)||lessons[0])}><Play size={18} fill="currentColor"/>Хичээлээ үргэлжлүүлэх</button></div><div className="orb"><div className="orbit"><ShieldCheck/></div><span className="dot d1"/><span className="dot d2"/><span className="dot d3"/></div></section>
         <section className="progress-row"><div className="progress-copy"><span className="progress-icon"><Zap/></span><div><b>Таны ахиц</b><small>{completeCount === lessons.length && lessons.length ? 'Бүх хичээлийг амжилттай дуусгалаа!' : 'Тууштай байгаарай, та сайн явж байна!'}</small></div></div><div className="progress-main"><div className="progress-label"><span>Нийт гүйцэтгэл</span><b>{lessons.length?Math.round(completeCount/lessons.length*100):0}%</b></div><div className="progress-track"><span style={{width:`${lessons.length?completeCount/lessons.length*100:0}%`}}/></div></div><div className="count"><b>{completeCount}</b><span>/ {lessons.length} хичээл</span></div></section>
