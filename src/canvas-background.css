@@ -1,0 +1,6 @@
+.cyber-code-scene{position:relative;isolation:isolate;background:#020711}
+.cyber-code-scene>canvas{position:absolute;z-index:-3;inset:0;display:block;width:100%;height:100%}
+.cyber-code-scene:before{position:absolute;z-index:-2;inset:0;content:"";background:radial-gradient(circle at 50% 45%,transparent 0 22%,#02071130 68%,#020711b8 100%);transform:none;animation:none}
+.cyber-code-scene:after{position:absolute;z-index:5;inset:0;content:"";pointer-events:none;background:repeating-linear-gradient(180deg,transparent 0 3px,#02071116 4px),linear-gradient(180deg,transparent 0 48%,#5eeac21c 50%,transparent 52%);background-size:100% 4px,100% 210px;mix-blend-mode:screen;animation:cyber-scan 6s linear infinite}
+.cyber-aurora{opacity:.11}
+@media(prefers-reduced-motion:reduce){.cyber-code-scene:after{animation:none}}

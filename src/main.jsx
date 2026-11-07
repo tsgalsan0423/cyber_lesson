@@ -5,6 +5,7 @@ import './styles.css'
 import TheoryContent,{RichText} from './TheoryContent.jsx'
 import Notifications from './Notifications.jsx'
 import './home-media.css'
+import './canvas-background.css'
 import './sidebar-toggle.css'
 import {randomQuiz,originalAnswers} from './quizOrder.js'
 import {activeDepartments,compareDepartments,compareStaff} from './staffOrder.js'
@@ -73,7 +74,87 @@ function DeferredMount({children,id,minHeight=320,enabled=true}){
 }
 
 function CodeBackgroundAnimation(){
+  const canvasRef=useRef(null)
+  useEffect(()=>{
+    const canvas=canvasRef.current
+    if(!canvas)return
+    const context=canvas.getContext('2d',{alpha:false})
+    const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    let width=0,height=0,dpr=1,frame,lastFrame=0,running=!document.hidden,particles=[]
+    const resetParticle=(particle,initial=false)=>{
+      particle.angle=Math.random()*Math.PI*2
+      particle.distance=initial?Math.random():Math.random()*.08
+      particle.speed=.055+Math.random()*.11
+      particle.size=.45+Math.random()*1.25
+      particle.hue=Math.random()>.22?'45,234,194':'72,145,255'
+      return particle
+    }
+    const resize=()=>{
+      const bounds=canvas.getBoundingClientRect()
+      width=Math.max(1,bounds.width);height=Math.max(1,bounds.height)
+      dpr=Math.min(window.devicePixelRatio||1,width<768?1:1.35)
+      canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr)
+      context.setTransform(dpr,0,0,dpr,0,0)
+      particles=Array.from({length:width<768?48:88},()=>resetParticle({},true))
+    }
+    const drawGrid=time=>{
+      const horizon=height*.43,center=width*.5
+      context.save();context.strokeStyle='rgba(61,220,202,.16)';context.lineWidth=1
+      for(let index=-11;index<=11;index++){
+        const bottom=center+index*(width/10)
+        context.beginPath();context.moveTo(center+(bottom-center)*.018,horizon);context.lineTo(bottom,height);context.stroke()
+      }
+      const drift=(time*.00009)%1
+      for(let index=0;index<20;index++){
+        const progress=(index+drift)/20,curve=progress*progress,y=horizon+curve*(height-horizon)
+        context.globalAlpha=.18+curve*.52;context.beginPath();context.moveTo(0,y);context.lineTo(width,y);context.stroke()
+      }
+      context.restore()
+    }
+    const drawParticles=elapsed=>{
+      const centerX=width*.5,centerY=height*.44,maxRadius=Math.hypot(width,height)*.66
+      for(const particle of particles){
+        particle.distance+=particle.speed*elapsed
+        if(particle.distance>1.03)resetParticle(particle)
+        const curve=particle.distance*particle.distance,radius=curve*maxRadius
+        const x=centerX+Math.cos(particle.angle)*radius,y=centerY+Math.sin(particle.angle)*radius*.62
+        const previous=Math.max(0,particle.distance-.035),previousRadius=previous*previous*maxRadius
+        const px=centerX+Math.cos(particle.angle)*previousRadius,py=centerY+Math.sin(particle.angle)*previousRadius*.62
+        context.strokeStyle=`rgba(${particle.hue},${.15+curve*.75})`;context.lineWidth=particle.size*(.7+curve*2.2)
+        context.beginPath();context.moveTo(px,py);context.lineTo(x,y);context.stroke()
+      }
+    }
+    const drawBeams=time=>{
+      context.save();context.globalCompositeOperation='screen'
+      for(let index=0;index<4;index++){
+        const phase=time*.00022+index*1.7,y=height*(.22+index*.18)+Math.sin(phase)*38
+        const gradient=context.createLinearGradient(0,y,width,y)
+        gradient.addColorStop(0,'rgba(34,211,167,0)');gradient.addColorStop(.5,'rgba(34,211,167,.18)');gradient.addColorStop(1,'rgba(37,99,235,0)')
+        context.strokeStyle=gradient;context.lineWidth=1.2;context.beginPath();context.moveTo(-40,y);context.bezierCurveTo(width*.3,y-70,width*.68,y+70,width+40,y-10);context.stroke()
+      }
+      context.restore()
+    }
+    const draw=time=>{
+      if(!running)return
+      frame=requestAnimationFrame(draw)
+      if(!reduced&&time-lastFrame<33)return
+      const elapsed=Math.min(.08,(time-lastFrame||33)/1000);lastFrame=time
+      const background=context.createRadialGradient(width*.5,height*.43,0,width*.5,height*.43,Math.max(width,height)*.72)
+      background.addColorStop(0,'#0a4658');background.addColorStop(.28,'#08283a');background.addColorStop(.68,'#041321');background.addColorStop(1,'#020711')
+      context.fillStyle=background;context.fillRect(0,0,width,height)
+      const glow=context.createRadialGradient(width*.5,height*.43,0,width*.5,height*.43,width*.32)
+      glow.addColorStop(0,'rgba(45,234,194,.19)');glow.addColorStop(1,'rgba(45,234,194,0)')
+      context.fillStyle=glow;context.fillRect(0,0,width,height)
+      drawGrid(time);drawBeams(time);drawParticles(reduced?0:elapsed)
+      if(reduced){cancelAnimationFrame(frame);frame=null}
+    }
+    const visibility=()=>{running=!document.hidden;if(running&&!frame){lastFrame=0;frame=requestAnimationFrame(draw)}else if(!running&&frame){cancelAnimationFrame(frame);frame=null}}
+    const observer=new ResizeObserver(resize);observer.observe(canvas);resize();frame=requestAnimationFrame(draw)
+    document.addEventListener('visibilitychange',visibility)
+    return()=>{running=false;if(frame)cancelAnimationFrame(frame);observer.disconnect();document.removeEventListener('visibilitychange',visibility)}
+  },[])
   return <div className="home-video-cover cyber-code-scene" aria-hidden="true">
+    <canvas ref={canvasRef}/>
     <span className="cyber-aurora aurora-one"/><span className="cyber-aurora aurora-two"/>
     <div className="cyber-radar"><span/><span/><span/><div><ShieldCheck/></div></div>
     <div className="cyber-data-lines"><i/><i/><i/><i/><i/></div>
