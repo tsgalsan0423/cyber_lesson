@@ -4,7 +4,7 @@ import {mergeNewsWithCurated} from '../server/curated-international-news.js'
 import {combinedSecurityCourseTitle,consolidatedSecurityCourses,securityFoundationCourses} from '../server/security-foundations-course.js'
 import {plainLessons} from '../server/plain-language.js'
 import {sortLessons} from '../server/lesson-order.js'
-import {STATIC_ASSETS} from './.generated-assets.js'
+import {STATIC_ASSETS,GZIP_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
 const securityHeaders={
@@ -25,9 +25,13 @@ const assetMime=path=>path.endsWith('.html')?'text/html; charset=utf-8':path.end
 function staticAsset(request){
   const url=new URL(request.url),key=STATIC_ASSETS[url.pathname]?url.pathname:'/index.html',encoded=STATIC_ASSETS[key]
   if(!encoded)return json({message:'Файл олдсонгүй.'},404)
-  let bytes=decodedAssets.get(key);if(!bytes){bytes=fromBase64(encoded);decodedAssets.set(key,bytes)}
+  const gzip=!request.headers.has('range')&&GZIP_ASSETS[key]&&/(?:^|,)\s*gzip\s*(?:;\s*q=(?!0(?:\.0*)?(?:\s*,|\s*$))[\d.]+)?\s*(?:,|$)/i.test(request.headers.get('accept-encoding')||'')
+  const cacheKey=gzip?key+':gzip':key
+  let bytes=decodedAssets.get(cacheKey);if(!bytes){bytes=fromBase64(gzip?GZIP_ASSETS[key]:encoded);decodedAssets.set(cacheKey,bytes)}
   const headers={'content-type':assetMime(key),'cache-control':key==='/index.html'?'no-cache':'public, max-age=31536000, immutable','accept-ranges':'bytes',...securityHeaders}
   const range=request.headers.get('range')?.match(/^bytes=(\d*)-(\d*)$/)
+  headers.vary='Accept-Encoding'
+  if(gzip)headers['content-encoding']='gzip'
   if(range){const start=range[1]?Number(range[1]):0,end=range[2]?Math.min(Number(range[2]),bytes.length-1):bytes.length-1;if(start> end||start>=bytes.length)return response(null,416,{'content-range':`bytes */${bytes.length}`});headers['content-range']=`bytes ${start}-${end}/${bytes.length}`;headers['content-length']=String(end-start+1);return response(bytes.slice(start,end+1),206,headers)}
   headers['content-length']=String(bytes.length);return response(request.method==='HEAD'?null:bytes,200,headers)
 }
@@ -258,8 +262,10 @@ async function bootstrap(request,env){
 }
 
 async function progressReports(env){
-  const users=await all(env,'SELECT id,name,surname,username,email,department,position,role FROM users ORDER BY name,id')
-  const lessons=sortLessons(await all(env,'SELECT id,title FROM lessons WHERE COALESCE(archived,0)=0 ORDER BY id')),views=await all(env,'SELECT * FROM lesson_views'),attempts=await all(env,'SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC'),completions=await all(env,'SELECT user_id,lesson_id FROM progress WHERE completed=1')
+  const queries=['SELECT id,name,surname,username,email,department,position,role FROM users ORDER BY name,id','SELECT id,title FROM lessons WHERE COALESCE(archived,0)=0 ORDER BY id','SELECT * FROM lesson_views','SELECT id,user_id,lesson_id,score,passed,created_at FROM exam_attempts ORDER BY id DESC','SELECT user_id,lesson_id FROM progress WHERE completed=1']
+  const results=await env.DB.batch(queries.map(sql=>env.DB.prepare(sql)))
+  const [users,lessonRows,views,attempts,completions]=results.map(result=>result.results||[])
+  const lessons=sortLessons(lessonRows)
   const key=(u,l)=>u+':'+l,viewMap=new Map(views.map(v=>[key(v.user_id,v.lesson_id),v])),attemptMap=new Map(),completed=new Set(completions.map(p=>key(p.user_id,p.lesson_id)))
   for(const attempt of attempts){const k=key(attempt.user_id,attempt.lesson_id);if(!attemptMap.has(k))attemptMap.set(k,[]);attemptMap.get(k).push(attempt)}
   const reports=users.map(user=>{
