@@ -4,7 +4,7 @@ import {mergeNewsWithCurated} from '../server/curated-international-news.js'
 import {combinedSecurityCourseTitle,consolidatedSecurityCourses,securityFoundationCourses} from '../server/security-foundations-course.js'
 import {plainLessons} from '../server/plain-language.js'
 import {sortLessons} from '../server/lesson-order.js'
-import {STATIC_ASSETS,GZIP_ASSETS} from './.generated-assets.js'
+import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
 const securityHeaders={
@@ -25,13 +25,9 @@ const assetMime=path=>path.endsWith('.html')?'text/html; charset=utf-8':path.end
 function staticAsset(request){
   const url=new URL(request.url),key=STATIC_ASSETS[url.pathname]?url.pathname:'/index.html',encoded=STATIC_ASSETS[key]
   if(!encoded)return json({message:'Файл олдсонгүй.'},404)
-  const gzip=!request.headers.has('range')&&GZIP_ASSETS[key]&&/(?:^|,)\s*gzip\s*(?:;\s*q=(?!0(?:\.0*)?(?:\s*,|\s*$))[\d.]+)?\s*(?:,|$)/i.test(request.headers.get('accept-encoding')||'')
-  const cacheKey=gzip?key+':gzip':key
-  let bytes=decodedAssets.get(cacheKey);if(!bytes){bytes=fromBase64(gzip?GZIP_ASSETS[key]:encoded);decodedAssets.set(cacheKey,bytes)}
+  let bytes=decodedAssets.get(key);if(!bytes){bytes=fromBase64(encoded);decodedAssets.set(key,bytes)}
   const headers={'content-type':assetMime(key),'cache-control':key==='/index.html'?'no-cache':'public, max-age=31536000, immutable','accept-ranges':'bytes',...securityHeaders}
   const range=request.headers.get('range')?.match(/^bytes=(\d*)-(\d*)$/)
-  headers.vary='Accept-Encoding'
-  if(gzip)headers['content-encoding']='gzip'
   if(range){const start=range[1]?Number(range[1]):0,end=range[2]?Math.min(Number(range[2]),bytes.length-1):bytes.length-1;if(start> end||start>=bytes.length)return response(null,416,{'content-range':`bytes */${bytes.length}`});headers['content-range']=`bytes ${start}-${end}/${bytes.length}`;headers['content-length']=String(end-start+1);return response(bytes.slice(start,end+1),206,headers)}
   headers['content-length']=String(bytes.length);return response(request.method==='HEAD'?null:bytes,200,headers)
 }

@@ -439,6 +439,8 @@ button:not(:disabled):hover svg{transform:none!important}
 @keyframes deferred-shimmer{to{background-position:-240% 0}}
 @media(prefers-reduced-motion:reduce){.global-loading-shadow,.deferred-mount>.deferred-placeholder{animation:none}.global-loading-spinner{animation-duration:1.6s}}
 
+/* Fresh asset URL after reverting application-level encoding. */
+:root{--asset-version:20261113}
 /* Keep admin user action icons equal-sized and reveal their names only on hover/focus. */
 .admin-table-wrap td.user-actions>button{
   position:relative!important;

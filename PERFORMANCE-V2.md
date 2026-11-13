@@ -1,7 +1,7 @@
 # v2 performance update
 
-- Precompress text assets at build time. Negotiate gzip with an uncompressed fallback; preserve byte ranges and HEAD requests. No API response caching changes.
-- Split React into a reusable hashed vendor bundle, reducing repeat downloads when application code changes.
+- Restore the proven asset delivery and bundling after a blank-screen production regression. Leave compression to hosting; do not precompress Worker response bodies.
+- Refresh the stylesheet URL so clients do not reuse the previous asset response.
 - Batch the five progress-report reads into one database round trip with the same queries and response structure.
 - Skip background notification polling while the document is hidden; existing focus refresh remains enabled.
 - No password, permission, examination, schema, or stored progress changes.
