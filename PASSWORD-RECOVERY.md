@@ -15,6 +15,8 @@ Set these server-only runtime values in Sites (or the local process environment)
 
 The government service is Zimbra. This integration uses account AuthRequest and SendMsgRequest over HTTPS, with TLS validation, no redirects, a 15-second total timeout, and no mail-server error-body logging. It does not need the Zimbra administrator account or mail forwarding.
 
+For Worker compatibility use `redirect: 'manual'`, then reject non-2xx responses. Cloudflare Workers rejects `redirect: 'error'` when constructing the request, before contacting the mailbox; a successful Node-only delivery test does not cover this runtime difference. Never use automatic redirect following for requests containing mailbox credentials or authentication cookies. Reference: https://developers.cloudflare.com/workers/runtime-apis/request/
+
 The SOAP endpoint/account policy and actual delivery must be confirmed against mail.gov.mn with a configured sender. An HTTP success from this application or a mocked transport test does not verify external delivery. If the provider disallows SOAP account sending, obtain its approved API/relay settings from the National Data Center; do not substitute a third-party sender silently.
 
 ## Data and verification

@@ -42,7 +42,9 @@ export function createRecoveryMailer(env,fetcher=fetch,report=details=>console.e
       const context={_jsns:'urn:zimbra',userAgent:{name:'SecureLab',version:'2'}}
       if(token){context.authToken={_content:token};context.account={by:'name',_content:env.MAIL_USERNAME}}
       const response=await fetcher(endpoint.href,{
-        method:'POST',redirect:'error',signal:controller.signal,
+        // Workers supports manual/follow only. Reject non-2xx below so mailbox
+        // credentials and cookies are never forwarded to a redirect destination.
+        method:'POST',redirect:'manual',signal:controller.signal,
         headers:{'content-type':'application/json; charset=utf-8',...(token?{cookie:`ZM_AUTH_TOKEN=${token}`}:{})},
         body:JSON.stringify({Header:{context},Body:body})
       })

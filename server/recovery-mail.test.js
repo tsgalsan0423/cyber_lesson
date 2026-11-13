@@ -12,7 +12,7 @@ test('Zimbra sends OTP over HTTPS with mailbox authentication, without forwardin
   await send({email:'recipient@khurdan.gov.mn',code:'123456'})
   assert.equal(calls.length,2)
   assert.equal(calls[0].url,'https://mail.gov.mn/service/soap')
-  assert.equal(calls[0].opts.redirect,'error')
+  assert.equal(calls[0].opts.redirect,'manual')
   assert.equal(calls[1].opts.headers.cookie,'ZM_AUTH_TOKEN=mock-token')
   assert.equal(calls[1].body.Body.SendMsgRequest.m.e[1].a,'recipient@khurdan.gov.mn')
   const mime=calls[1].body.Body.SendMsgRequest.m.mp[0]
@@ -40,6 +40,21 @@ test('provider faults are sanitized and no send is attempted after bad auth',asy
   assert.deepEqual(reports,[{phase:'authentication',status:200,code:'account.AUTH_FAILED'}])
   assert.ok(!JSON.stringify(reports).includes('provider-secret-detail'))
   assert.ok(!JSON.stringify(reports).includes(env.MAIL_PASSWORD))
+})
+
+test('Workers-compatible transport rejects redirects without forwarding credentials',async()=>{
+  const reports=[]
+  let calls=0
+  const send=createRecoveryMailer(env,async(url,options)=>{
+    // Reproduce the Workers request option constraint that Node does not enforce.
+    if(!['manual','follow'].includes(options.redirect))throw new TypeError('Unsupported redirect mode')
+    assert.equal(options.redirect,'manual')
+    calls++
+    return new Response(null,{status:302,headers:{location:'https://unexpected.example/'}})
+  },report=>reports.push(report))
+  await assert.rejects(send({email:'recipient@khurdan.gov.mn',code:'123456'}),error=>error.status===503)
+  assert.equal(calls,1)
+  assert.deepEqual(reports,[{phase:'authentication',status:302,code:'MAIL_REQUEST_FAILED'}])
 })
 test('missing config and unexpected endpoints fail closed',async()=>{
   assert.equal(recoveryMailConfigured({}),false)
