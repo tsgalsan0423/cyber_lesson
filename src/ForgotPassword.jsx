@@ -10,7 +10,7 @@ export default function ForgotPassword({initialEmail='',onClose,onSuccess}){
   const [email,setEmail]=useState(initialEmail),[challenge,setChallenge]=useState(null)
   const [code,setCode]=useState(''),[password,setPassword]=useState(''),[confirmation,setConfirmation]=useState('')
   const [showPassword,setShowPassword]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[success,setSuccess]=useState(false)
-  const [remaining,setRemaining]=useState(0),[expiresIn,setExpiresIn]=useState(0)
+  const [remaining,setRemaining]=useState(0),[expiresIn,setExpiresIn]=useState(0),[resendAt,setResendAt]=useState(0)
   const modalRef=useRef(null),firstFieldRef=useRef(null),codeRef=useRef(null),busyRef=useRef(false),closeRef=useRef(onClose)
   busyRef.current=busy;closeRef.current=onClose
   useEffect(()=>{
@@ -29,12 +29,13 @@ export default function ForgotPassword({initialEmail='',onClose,onSuccess}){
     return()=>{document.removeEventListener('keydown',handleKey);document.body.style.overflow=overflow;previous?.focus?.()}
   },[])
   useEffect(()=>{
-    if(!challenge)return
-    const update=()=>{setRemaining(secondsUntil(challenge.resendAt));setExpiresIn(secondsUntil(challenge.expiresAt))}
-    update();codeRef.current?.focus()
+    const update=()=>{setRemaining(secondsUntil(resendAt));setExpiresIn(challenge?secondsUntil(challenge.expiresAt):0)}
+    update()
+    if(!challenge&&!resendAt)return
     const timer=window.setInterval(update,1000)
     return()=>window.clearInterval(timer)
-  },[challenge])
+  },[challenge,resendAt])
+  useEffect(()=>{if(challenge)codeRef.current?.focus()},[challenge])
   const sendCode=async event=>{
     event?.preventDefault();if(busy||remaining>0)return
     setBusy(true);setError('')
@@ -43,8 +44,9 @@ export default function ForgotPassword({initialEmail='',onClose,onSuccess}){
       if(typeof data.request_id!=='string'||!data.request_id)throw new Error('Баталгаажуулах хүсэлтийн мэдээлэл дутуу ирлээ. Дахин оролдоно уу.')
       const resend=Number.isFinite(Number(data.resend_after))?Math.max(1,Number(data.resend_after)):60
       const expires=Number.isFinite(Number(data.expires_in))?Math.max(1,Number(data.expires_in)):600
-      setChallenge({id:data.request_id,resendAt:Date.now()+resend*1000,expiresAt:Date.now()+expires*1000});setCode('')
-    }catch(e){setError(e.message)}finally{setBusy(false)}
+      setResendAt(Date.now()+resend*1000)
+      setChallenge({id:data.request_id,expiresAt:Date.now()+expires*1000});setCode('')
+    }catch(e){setError(e.message);if(e.retryAfter)setResendAt(Date.now()+e.retryAfter*1000)}finally{setBusy(false)}
   }
   const resetPassword=async event=>{
     event.preventDefault();setError('')
@@ -58,7 +60,7 @@ export default function ForgotPassword({initialEmail='',onClose,onSuccess}){
       setPassword('');setConfirmation('');setCode('');setChallenge(null);setSuccess(true)
     }catch(e){setError(e.message)}finally{setBusy(false)}
   }
-  const changeEmail=()=>{setChallenge(null);setCode('');setPassword('');setConfirmation('');setRemaining(0);setError('');window.requestAnimationFrame(()=>firstFieldRef.current?.focus())}
+  const changeEmail=()=>{setChallenge(null);setCode('');setPassword('');setConfirmation('');setRemaining(0);setResendAt(0);setError('');window.requestAnimationFrame(()=>firstFieldRef.current?.focus())}
   const finish=()=>{if(onSuccess)onSuccess('Нууц үг амжилттай шинэчлэгдлээ. Шинэ нууц үгээрээ нэвтэрнэ үү.');else onClose?.()}
   return <div className="modal-bg forgot-password-backdrop"><section ref={modalRef} className="forgot-password-modal" role="dialog" aria-modal="true" aria-labelledby="forgot-password-title" aria-describedby="forgot-password-description" aria-busy={busy}>
     <button type="button" className="forgot-close" aria-label="Нууц үг сэргээх цонх хаах" disabled={busy} onClick={onClose}><X size={19}/></button>
@@ -86,7 +88,7 @@ export default function ForgotPassword({initialEmail='',onClose,onSuccess}){
         <label htmlFor="reset-email">Цахим шуудангийн хаяг</label>
         <input ref={firstFieldRef} id="reset-email" type="email" autoComplete="email" required maxLength={160} placeholder="name@khurdan.gov.mn" value={email} onChange={e=>setEmail(e.target.value)} disabled={busy}/>
         {error&&<p className="forgot-error" role="alert">{error}</p>}
-        <button type="submit" className="primary forgot-submit" disabled={busy}>{busy?'Код илгээж байна…':'Баталгаажуулах код авах'}</button>
+        <button type="submit" className="primary forgot-submit" disabled={busy||remaining>0}>{busy?'Код илгээж байна…':remaining>0?`${remaining} секундийн дараа дахин авах`:'Баталгаажуулах код авах'}</button>
       </form>}
       <button type="button" className="forgot-back" disabled={busy} onClick={onClose}><ArrowLeft size={15}/>Нэвтрэх хэсэг рүү буцах</button>
     </>}

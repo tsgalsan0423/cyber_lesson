@@ -29,7 +29,7 @@ export function recoveryMailConfigured(env){
   return env.PASSWORD_RECOVERY_ENABLED==='true'&&emailPattern.test(env.MAIL_USERNAME||'')&&Boolean(env.MAIL_PASSWORD)&&emailPattern.test(env.MAIL_FROM||env.MAIL_USERNAME||'')
 }
 
-export function createRecoveryMailer(env,fetcher=fetch){
+export function createRecoveryMailer(env,fetcher=fetch,report=details=>console.error('otp_mail_delivery_failed',JSON.stringify(details))){
   return async function sendCode({email,code}){
     if(!recoveryMailConfigured(env)||!emailPattern.test(email)||!/^\d{6}$/.test(code))throw unavailable()
     const from=env.MAIL_FROM||env.MAIL_USERNAME
@@ -37,7 +37,7 @@ export function createRecoveryMailer(env,fetcher=fetch){
     try{endpoint=new URL(env.MAIL_SOAP_URL||'https://mail.gov.mn/service/soap')}catch{throw unavailable()}
     if(endpoint.protocol!=='https:'||endpoint.hostname!=='mail.gov.mn'||endpoint.port||endpoint.username||endpoint.password||endpoint.search||endpoint.hash||!/^\/service\/soap\/?$/.test(endpoint.pathname))throw unavailable()
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),15000)
-    let token
+    let token,phase='authentication',providerStatus,providerCode
     const call=async(body)=>{
       const context={_jsns:'urn:zimbra',userAgent:{name:'SecureLab',version:'2'}}
       if(token){context.authToken={_content:token};context.account={by:'name',_content:env.MAIL_USERNAME}}
@@ -46,8 +46,13 @@ export function createRecoveryMailer(env,fetcher=fetch){
         headers:{'content-type':'application/json; charset=utf-8',...(token?{cookie:`ZM_AUTH_TOKEN=${token}`}:{})},
         body:JSON.stringify({Header:{context},Body:body})
       })
+      providerStatus=response.status
       if(!response.ok)throw unavailable()
       const data=await response.json()
+      const fault=data?.Body?.Fault
+      const rawCode=fault?.Detail?.Error?.Code||fault?.Detail?.Error?.[0]?.Code
+      const code=typeof rawCode==='string'?rawCode:rawCode?._content
+      if(typeof code==='string'&&/^[a-zA-Z0-9_.:-]{1,80}$/.test(code))providerCode=code
       if(data?.Body?.Fault||!data?.Body)throw unavailable()
       return data.Body
     }
@@ -55,11 +60,15 @@ export function createRecoveryMailer(env,fetcher=fetch){
       const auth=await call({AuthRequest:{_jsns:'urn:zimbraAccount',account:{by:'name',_content:env.MAIL_USERNAME},password:{_content:env.MAIL_PASSWORD}}})
       token=content(auth.AuthResponse?.authToken)
       if(typeof token!=='string'||!token||/[\s;\r\n]/.test(token)||auth.AuthResponse?.twoFactorAuthRequired===true||auth.AuthResponse?.twoFactorAuthRequired==='1')throw unavailable()
+      phase='send';providerStatus=undefined;providerCode=undefined
       const {text,html}=recoveryMessage(code)
       const sent=await call({SendMsgRequest:{_jsns:'urn:zimbraMail',m:{e:[{a:from,t:'f'},{a:email,t:'t'}],su:{_content:'Нууц үг шинэчлэх баталгаажуулах код'},mp:[{ct:'multipart/alternative',mp:[{ct:'text/plain',content:{_content:text}},{ct:'text/html',content:{_content:html}}]}]}}})
       if(!sent.SendMsgResponse)throw unavailable()
-    }catch{
+    }catch(error){
       // Never return or log provider bodies, credentials, auth tokens or OTPs.
+      const networkCode=error?.cause?.code
+      const safeNetworkCode=['ENOTFOUND','ECONNREFUSED','ETIMEDOUT','UND_ERR_CONNECT_TIMEOUT','CERT_HAS_EXPIRED','UNABLE_TO_VERIFY_LEAF_SIGNATURE'].includes(networkCode)?networkCode:undefined
+      report({phase,status:providerStatus,code:providerCode||safeNetworkCode||(error?.name==='AbortError'?'TIMEOUT':'MAIL_REQUEST_FAILED')})
       throw unavailable()
     }finally{clearTimeout(timeout)}
   }

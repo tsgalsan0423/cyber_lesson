@@ -22,6 +22,19 @@ function fixture({send}={}){
 }
 const invalid=error=>error.status===400&&/код/.test(error.message)
 
+test('cooldown and hourly caps report remaining time rather than a generic lockout',async()=>{
+  const f=fixture()
+  await f.request()
+  f.advance(30000)
+  await assert.rejects(f.request(),error=>error.status===429&&error.retry_after===30&&/30 секунд/.test(error.message))
+  f.advance(30000)
+  await f.request()
+  for(let sent=2;sent<5;sent++){f.advance(60000);await f.request()}
+  f.advance(60000)
+  await assert.rejects(f.request(),error=>error.status===429&&error.retry_after===3300&&/цагийн хязгаарт/.test(error.message))
+  f.sqlite.close()
+})
+
 test('OTP is hashed, expires in ten minutes and resets only password/session state',async()=>{
   const f=fixture(),result=await f.request()
   assert.equal(result.expires_in,600);assert.equal(result.resend_after,60)

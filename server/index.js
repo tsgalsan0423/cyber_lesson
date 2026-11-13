@@ -311,7 +311,7 @@ app.post('/api/auth/password-reset/:action',async(req,res,next)=>{
     const result=await recoverPassword(action,req.body,{ip:clientIp(req),device:clientDeviceId(req)})
     return res.json(result)
   }catch(error){
-    if(error.status>=400&&error.status<500||error.status===503)return res.status(error.status).json({message:error.message})
+    if(error.status>=400&&error.status<500||error.status===503){if(error.retry_after)res.set('Retry-After',String(error.retry_after));return res.status(error.status).json({message:error.message,...(error.retry_after?{retry_after:error.retry_after}:{})})}
     next(error)
   }
 })

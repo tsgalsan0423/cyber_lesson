@@ -118,7 +118,11 @@ export async function request(path, options = {}) {
       const message = typeof data?.message === 'string' && /[А-Яа-яӨөҮүЁё]/.test(data.message)
         ? data.message
         : statusMessage(response.status)
-      throw new Error(message)
+      const error=new Error(message)
+      error.status=response.status
+      const retryAfter=Number(response.headers.get('retry-after')||data?.retry_after)
+      if(Number.isFinite(retryAfter)&&retryAfter>0)error.retryAfter=Math.min(86400,Math.ceil(retryAfter))
+      throw error
     }
     if (!data || typeof data !== 'object') {
       throw new Error('Серверээс хоосон хариу ирлээ. Дахин оролдоно уу.')

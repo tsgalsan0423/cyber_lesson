@@ -287,7 +287,7 @@ async function handleApi(request,env,ctx){
       handler=createRecoveryHandler({db,env,passwordError});recoveryHandlers.set(env,handler)
     }
     try{return json(await handler(recoveryAction,await bodyJson(request),{ip:requestIp(request),device:requestDeviceId(request)}))}
-    catch(error){if(error.status>=400&&error.status<500||error.status===503)return json({message:error.message},error.status);throw error}
+    catch(error){if(error.status>=400&&error.status<500||error.status===503)return json({message:error.message,...(error.retry_after?{retry_after:error.retry_after}:{})},error.status,error.retry_after?{'retry-after':String(error.retry_after)}:{});throw error}
   }
   if(method==='POST'&&path==='/api/auth/login'){
     const rateLockedUntil=await loginRateLimit(request,env)

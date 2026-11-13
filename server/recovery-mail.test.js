@@ -33,9 +33,13 @@ test('Zimbra sends OTP over HTTPS with mailbox authentication, without forwardin
 })
 test('provider faults are sanitized and no send is attempted after bad auth',async()=>{
   let calls=0
-  const send=createRecoveryMailer(env,async()=>{calls++;return Response.json({Body:{Fault:{Reason:'provider-secret-detail'}}})})
+  const reports=[]
+  const send=createRecoveryMailer(env,async()=>{calls++;return Response.json({Body:{Fault:{Reason:'provider-secret-detail',Detail:{Error:{Code:'account.AUTH_FAILED'}}}}})},report=>reports.push(report))
   await assert.rejects(send({email:'recipient@khurdan.gov.mn',code:'123456'}),e=>e.status===503&&!e.message.includes('provider-secret'))
   assert.equal(calls,1)
+  assert.deepEqual(reports,[{phase:'authentication',status:200,code:'account.AUTH_FAILED'}])
+  assert.ok(!JSON.stringify(reports).includes('provider-secret-detail'))
+  assert.ok(!JSON.stringify(reports).includes(env.MAIL_PASSWORD))
 })
 test('missing config and unexpected endpoints fail closed',async()=>{
   assert.equal(recoveryMailConfigured({}),false)

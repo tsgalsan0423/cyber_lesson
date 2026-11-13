@@ -44,7 +44,16 @@ export function createPasswordRecovery({db,secret,sendCode,passwordError,now=Dat
       window_started=CASE WHEN password_reset_limits.window_started<=? THEN ? ELSE password_reset_limits.window_started END
       WHERE password_reset_limits.window_started<=? OR password_reset_limits.attempts<? RETURNING key`,
       [opaqueKey,timestamp,expiry,expiry,timestamp,expiry,count])
-    if(!accepted)throw fail('Баталгаажуулах кодын оролдлогын хязгаарт хүрсэн байна. Түр хүлээгээд дахин оролдоно уу.',429)
+    if(!accepted){
+      const record=await db.get('SELECT window_started FROM password_reset_limits WHERE key=?',[opaqueKey])
+      const retry_after=Math.max(1,Math.ceil((Number(record?.window_started??timestamp)+duration-timestamp)/1000))
+      const wait=retry_after<60?`${retry_after} секунд`:`${Math.ceil(retry_after/60)} минут`
+      const message=kind==='resend-email'
+        ?`Код дахин авахын өмнө ${wait} хүлээнэ үү.`
+        :kind.startsWith('send-')?`Баталгаажуулах код авах цагийн хязгаарт хүрсэн байна. ${wait} дараа дахин оролдоно уу.`
+        :`Код баталгаажуулах оролдлогын хязгаарт хүрсэн байна. ${wait} дараа дахин оролдоно уу.`
+      throw Object.assign(fail(message,429),{retry_after})
+    }
   }
   async function request({email:value,ip,device}){
     const email=normalizeEmail(value)
@@ -63,7 +72,8 @@ export function createPasswordRecovery({db,secret,sendCode,passwordError,now=Dat
       try{await sendCode({email:user.email,code})}
       catch{
         await db.run('UPDATE password_reset_codes SET consumed_at=? WHERE request_id=?',[now(),request_id])
-        throw fail('Баталгаажуулах кодыг цахим шуудангаар илгээж чадсангүй. Түр хүлээгээд дахин оролдоно уу.',503)
+        const retry_after=Math.max(1,Math.ceil((timestamp+60000-now())/1000))
+        throw Object.assign(fail('Баталгаажуулах кодыг цахим шуудангаар илгээж чадсангүй. Хүлээх хугацаа дууссаны дараа дахин оролдоно уу. Алдаа давтагдвал системийн админд хандана уу.',503),{retry_after})
       }
     }
     return{request_id,message:'Хэрэв энэ цахим шуудангийн хаяг системд бүртгэлтэй бол баталгаажуулах код илгээгдэнэ. Ирсэн захидал болон сэжигтэй захидлын хавтсаа шалгана уу.',resend_after:60,expires_in:600}

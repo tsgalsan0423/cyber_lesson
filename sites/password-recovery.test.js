@@ -35,6 +35,12 @@ test('Worker recovery routes reset the password and revoke old sessions without 
     assert.equal(requested.status,200)
     const challenge=await requested.json()
     assert.ok(!JSON.stringify(challenge).includes(deliveredCode))
+    const limited=await call('/auth/password-reset/request',{email:'person@khurdan.gov.mn'})
+    assert.equal(limited.status,429)
+    const wait=await limited.json()
+    assert.ok(wait.retry_after>0&&wait.retry_after<=60)
+    assert.equal(Number(limited.headers.get('retry-after')),wait.retry_after)
+    assert.match(wait.message,/Код дахин авахын өмнө/)
     const payload={email:'person@khurdan.gov.mn',request_id:challenge.request_id,code:deliveredCode,password:'NewPassword-456!',confirmation:'NewPassword-456!'}
     const confirmed=await call('/auth/password-reset/confirm',payload)
     assert.equal(confirmed.status,200,await confirmed.text())
