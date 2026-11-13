@@ -15,7 +15,20 @@ test('Zimbra sends OTP over HTTPS with mailbox authentication, without forwardin
   assert.equal(calls[0].opts.redirect,'error')
   assert.equal(calls[1].opts.headers.cookie,'ZM_AUTH_TOKEN=mock-token')
   assert.equal(calls[1].body.Body.SendMsgRequest.m.e[1].a,'recipient@khurdan.gov.mn')
-  assert.match(calls[1].body.Body.SendMsgRequest.m.mp[0].content._content,/123456/)
+  const mime=calls[1].body.Body.SendMsgRequest.m.mp[0]
+  assert.equal(mime.ct,'multipart/alternative')
+  const plain=mime.mp.find(part=>part.ct==='text/plain').content._content
+  const html=mime.mp.find(part=>part.ct==='text/html').content._content
+  for(const body of [plain,html]){
+    assert.match(body,/123456/)
+    assert.match(body,/Цогбадрах Галсан/)
+    assert.match(body,/galsan\.ts@khurdan\.gov\.mn/)
+    assert.match(body,/\+976 9006 1699/)
+    assert.match(body,/Та нууц үг шинэчлэх хүсэлт гаргаагүй бол кибер аюулгүй байдал хариуцсан мэргэжилтэнд хандана уу\./)
+    assert.match(body,/https:\/\/hihello\.com\/p\/fba323f5-1360-4080-a14e-89e02f547b9c/)
+  }
+  assert.match(html,/signature_qrcode\.png/)
+  assert.match(html,/href="tel:\+97690061699"/)
   assert.ok(!calls[1].opts.body.includes(env.MAIL_PASSWORD))
 })
 test('provider faults are sanitized and no send is attempted after bad auth',async()=>{

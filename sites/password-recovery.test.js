@@ -24,7 +24,7 @@ test('Worker recovery routes reset the password and revoke old sessions without 
     const data=JSON.parse(options.body).Body
     if(data.AuthRequest)return Response.json({Body:{AuthResponse:{authToken:[{_content:'fixture-token'}]}}})
     assert.equal(data.SendMsgRequest.m.e[1].a,'person@khurdan.gov.mn')
-    deliveredCode=data.SendMsgRequest.m.mp[0].content._content.match(/код: (\d{6})/)[1]
+    deliveredCode=data.SendMsgRequest.m.mp[0].mp.find(part=>part.ct==='text/plain').content._content.match(/код: (\d{6})/)[1]
     return Response.json({Body:{SendMsgResponse:{m:[{id:'1'}]}}})
   }
   try{
