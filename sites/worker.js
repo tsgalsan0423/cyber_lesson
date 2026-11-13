@@ -4,6 +4,7 @@ import {mergeNewsWithCurated} from '../server/curated-international-news.js'
 import {combinedSecurityCourseTitle,consolidatedSecurityCourses,securityFoundationCourses} from '../server/security-foundations-course.js'
 import {plainLessons} from '../server/plain-language.js'
 import {sortLessons} from '../server/lesson-order.js'
+import {createRecoveryHandler} from '../server/recovery-handler.js'
 import {STATIC_ASSETS} from './.generated-assets.js'
 
 const jsonHeaders={'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
@@ -15,6 +16,7 @@ const securityHeaders={
 const enc=new TextEncoder(),dec=new TextDecoder()
 const loginAttempts=new Map(),LOCK_MS=15*60*1000,LOGIN_LIMIT=5,DEVICE_LOGIN_LIMIT=30,SHARED_IP_LOGIN_LIMIT=300,RATE_WINDOW_MS=60*1000
 const decodedAssets=new Map()
+const recoveryHandlers=new WeakMap()
 
 const response=(body,status=200,headers={})=>new Response(body,{status,headers:{...securityHeaders,...headers}})
 const json=(body,status=200,headers={})=>response(JSON.stringify(body),status,{...jsonHeaders,...headers})
@@ -277,6 +279,16 @@ async function handleApi(request,env,ctx){
   if(method==='POST'&&path==='/api/internal/bootstrap')return bootstrap(request,env)
   if(method==='GET'&&path==='/api/health')return json({ok:true,database:!!await get(env,"SELECT value FROM system_meta WHERE key='bootstrap_complete'")})
   if(method==='POST'&&path==='/api/auth/register')return json({message:'Нийтийн бүртгэл хаалттай. Хэрэглэгчийг админ үүсгэнэ.'},403)
+  const recoveryAction=path.match(/^\/api\/auth\/password-reset\/(request|confirm)$/)?.[1]
+  if(method==='POST'&&recoveryAction){
+    let handler=recoveryHandlers.get(env)
+    if(!handler){
+      const db={exec:sql=>env.DB.batch(sql.split(';').map(statement=>statement.trim()).filter(Boolean).map(statement=>env.DB.prepare(statement))),get:(sql,values=[])=>get(env,sql,values),run:(sql,values=[])=>run(env,sql,values)}
+      handler=createRecoveryHandler({db,env,passwordError});recoveryHandlers.set(env,handler)
+    }
+    try{return json(await handler(recoveryAction,await bodyJson(request),{ip:requestIp(request),device:requestDeviceId(request)}))}
+    catch(error){if(error.status>=400&&error.status<500||error.status===503)return json({message:error.message},error.status);throw error}
+  }
   if(method==='POST'&&path==='/api/auth/login'){
     const rateLockedUntil=await loginRateLimit(request,env)
     if(rateLockedUntil>Date.now()){const seconds=Math.ceil((rateLockedUntil-Date.now())/1000);return json({message:`Энэ төхөөрөмжөөс 1 минутанд хэт олон нэвтрэх оролдлого хийсэн байна. ${Math.ceil(seconds/60)} минутын дараа дахин оролдоно уу.`},429,{'retry-after':String(seconds)})}

@@ -15,6 +15,7 @@ import GlobalLoadingOverlay from './GlobalLoadingOverlay.jsx'
 const AdminAnalytics=lazy(()=>import('./AdminAnalytics.jsx'))
 const News=lazy(()=>import('./News.jsx'))
 const PasswordReset=lazy(()=>import('./PasswordReset.jsx'))
+const ForgotPassword=lazy(()=>import('./ForgotPassword.jsx'))
 const LessonEditor=lazy(()=>import('./LessonEditor.jsx'))
 const ProfileEdit=lazy(()=>import('./ProfileEdit.jsx'))
 const ProgressScope=lazy(()=>import('./ProgressScope.jsx'))
@@ -185,6 +186,7 @@ function PhishingCodeVideo(){
 }
 
 function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
+  const [forgotOpen,setForgotOpen]=useState(false),[recoveryNotice,setRecoveryNotice]=useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -222,16 +224,18 @@ function Auth({ onAuth, adminOnly=false, notice, theme, toggleTheme }) {
         <p>{adminOnly?'Сургалт системийн удирдлагын хэсэг':'Сургалтаа үргэлжлүүлэхийн тулд нэвтэрнэ үү.'}</p>
         {adminOnly&&<div className="admin-login-label"><Shield/> Зөвхөн эрх бүхий албан хаагч</div>}
         {!adminOnly&&<div className="login-spacer"/>}
-        {notice&&<p className="success-notice" role="status">{notice}</p>}
+        {(recoveryNotice||notice)&&<p className="success-notice" role="status">{recoveryNotice||notice}</p>}
         <form onSubmit={submit}>
           <label>Цахим шуудангийн хаяг<div className="input-wrap"><User size={18}/><input required type="email" autoComplete="username" placeholder="name@khurdan.gov.mn" value={form.identifier} onChange={e=>setForm({...form,identifier:e.target.value})}/></div></label>
           <label>Нууц үг<div className="input-wrap"><LockKeyhole size={18}/><input type={showPassword ? 'text' : 'password'} required minLength="6" placeholder="••••••••" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/><button type="button" className="eye" title={showPassword?'Нууц үг нуух':'Нууц үг харуулах'} aria-label={showPassword?'Нууц үг нуух':'Нууц үг харуулах'} onClick={()=>setShowPassword(!showPassword)}>{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div></label>
           {error && <div className="error">{error}</div>}
           <button className="primary auth-submit" disabled={loading}>{loading ? 'Түр хүлээнэ үү...' : adminOnly?'Админ панел руу':'Нэвтрэх'}<ArrowRight size={18}/></button>
         </form>
+        <button type="button" className="forgot-password-link" onClick={()=>{setForgotOpen(true);setError('');setRecoveryNotice('')}}>Нууц үгээ мартсан?</button>
         <p className="fine"><Shield size={14}/> Нийтийн мэдээллийн дэд бүтэц, Нээлттэй өгөгдлийн газар</p>
       </div>
     </section>
+    {forgotOpen&&<Suspense fallback={<div className="modal-bg" role="status">Түр хүлээнэ үү…</div>}><ForgotPassword initialEmail={form.identifier} onClose={()=>setForgotOpen(false)} onSuccess={message=>{setForgotOpen(false);setRecoveryNotice(message);setForm(current=>({...current,password:''}))}}/></Suspense>}
   </main>
 }
 

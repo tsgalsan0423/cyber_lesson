@@ -11,6 +11,7 @@ import { combinedSecurityCourseTitle, consolidatedSecurityCourses, securityFound
 import { createDatabase } from './db.js'
 import { canResetPassword } from './org-scope.js'
 import { sortLessons } from './lesson-order.js'
+import { createRecoveryHandler } from './recovery-handler.js'
 import { plainLessons } from './plain-language.js'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
@@ -302,6 +303,18 @@ const passwordError=password=>{
   return ''
 }
 const loginAttempts=new Map(),loginRateLimits=new Map(),LOGIN_LIMIT=5,DEVICE_LOGIN_LIMIT=30,SHARED_IP_LOGIN_LIMIT=300,RATE_WINDOW_MS=60*1000,LOCK_MS=15*60*1000
+const recoverPassword=createRecoveryHandler({db,env:{...process.env,JWT_SECRET},passwordError})
+app.post('/api/auth/password-reset/:action',async(req,res,next)=>{
+  const action=req.params.action
+  if(!['request','confirm'].includes(action))return res.status(404).json({message:'Хүссэн мэдээлэл олдсонгүй.'})
+  try{
+    const result=await recoverPassword(action,req.body,{ip:clientIp(req),device:clientDeviceId(req)})
+    return res.json(result)
+  }catch(error){
+    if(error.status>=400&&error.status<500||error.status===503)return res.status(error.status).json({message:error.message})
+    next(error)
+  }
+})
 const loginKey=(req,identifier)=>`${clientIp(req)}|${identifier.toLowerCase().slice(0,160)}`
 const dummyPasswordHash=bcrypt.hashSync('Dummy-Password-Only-9!',12)
 const pruneLoginAttempts=()=>{
